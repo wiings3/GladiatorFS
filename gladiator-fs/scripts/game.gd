@@ -51,6 +51,12 @@ var camera_yaw = 0.0
 var camera_pitch = -0.30
 var camera_center = Vector3(0, 1.5, 25)
 var camera_initialized = false
+const CAMERA_ZOOM_MIN = 2.0
+const CAMERA_ZOOM_MAX = 9.0
+var first_person = false
+var third_person_zoom = 5.2
+var camera_distance = 5.2
+var camera_subject = null
 var pending_name = "Gladiator"
 var connection_wait = 0.0
 var spectating_id = 0
@@ -839,6 +845,14 @@ func _unhandled_input(input: InputEvent) -> void:
 		return
 	if menu_open:
 		return
+	if input is InputEventKey and input.pressed and not input.echo and input.physical_keycode == KEY_C:
+		toggle_perspective()
+		get_viewport().set_input_as_handled()
+		return
+	if input is InputEventMouseButton and input.pressed and input.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN]:
+		zoom_camera(-1.0 if input.button_index == MOUSE_BUTTON_WHEEL_UP else 1.0)
+		get_viewport().set_input_as_handled()
+		return
 	if input is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		steer_mouse(input.relative)
 	var action = ""
@@ -858,6 +872,18 @@ func _unhandled_input(input: InputEvent) -> void:
 			act(local_id(), action, spectating_id)
 		else:
 			submit_action.rpc_id(1, action, spectating_id)
+
+func toggle_perspective() -> void:
+	var actor = actors.get(local_id())
+	if not is_instance_valid(actor) or not actor.alive: return
+	first_person = not first_person
+	camera_distance = third_person_zoom
+	ui.toast("FIRST PERSON  ·  C to switch" if first_person else "THIRD PERSON  ·  Scroll to zoom  ·  C to switch")
+
+func zoom_camera(steps: float) -> void:
+	var actor = actors.get(local_id())
+	if first_person or not is_instance_valid(actor) or not actor.alive: return
+	third_person_zoom = clampf(third_person_zoom + steps * 0.65, CAMERA_ZOOM_MIN, CAMERA_ZOOM_MAX)
 
 func weapon_button(pressed: bool) -> String:
 	var tap = not pressed and mouse_grip and Time.get_ticks_msec() - mouse_press_time <= 220 and mouse_drag_distance < 12.0
@@ -1014,11 +1040,18 @@ func _process(delta: float) -> void:
 			effect_nodes.remove_at(index)
 
 func update_camera(delta: float) -> void:
+	var actor = actors.get(local_id()) if running else null
+	var eye_view = first_person and is_instance_valid(actor) and actor.alive and actor.knockdown <= 0
+	if is_instance_valid(camera_subject) and camera_subject != actor:
+		camera_subject.set_first_person_view(false)
+	camera_subject = actor
+	if is_instance_valid(actor): actor.set_first_person_view(eye_view)
+	camera.near = 0.04 if eye_view else 0.1
+	camera.fov = 86 if eye_view else 68
 	if not running:
 		camera.position = Vector3(sin(demo_clock * 0.025) * 4 + 21, 20, 28)
 		camera.look_at(Vector3(0, 0.5, -1), Vector3.UP)
 		return
-	var actor = actors.get(local_id())
 	if actor == null:
 		return
 	if not actor.alive:
@@ -1037,7 +1070,13 @@ func update_camera(delta: float) -> void:
 	# smoothing filter here makes strafing visibly wobble relative to the camera.
 	camera_center = focus
 	var basis_yaw = Basis(Vector3.UP, camera_yaw)
-	var offset = Vector3(0.55, -sin(camera_pitch) * 5.2, cos(camera_pitch) * 5.2)
+	if eye_view:
+		# Stay inside the head capsule, with enough room to see the physical sword at rest.
+		camera.position = actor.get_global_transform_interpolated().origin + Vector3(0, 1.85, 0) + basis_yaw * Vector3(0.08, 0, 0.16)
+		camera.basis = basis_yaw * Basis(Vector3.RIGHT, camera_pitch)
+		return
+	camera_distance = lerpf(camera_distance, third_person_zoom, 1.0 - exp(-delta * 12.0))
+	var offset = Vector3(0.55, -sin(camera_pitch) * camera_distance, cos(camera_pitch) * camera_distance)
 	var desired = camera_center + basis_yaw * offset
 	var query = PhysicsRayQueryParameters3D.create(camera_center, desired, 1)
 	var hit = get_world_3d().direct_space_state.intersect_ray(query)

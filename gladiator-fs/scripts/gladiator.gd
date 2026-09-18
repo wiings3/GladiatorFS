@@ -136,6 +136,13 @@ func _ready() -> void:
 func forward() -> Vector3:
 	return Vector3.FORWARD.rotated(Vector3.UP, rotation.y)
 
+func set_first_person_view(enabled: bool) -> void:
+	# Local rendering only: avoid self-occlusion without changing combat geometry.
+	if parts.has("head"):
+		parts.head.visible = not enabled
+		parts.torso.visible = not enabled
+	nameplate.visible = not enabled
+
 func can_act() -> bool:
 	return alive and knockdown <= 0 and dodge_time <= 0 and game.phase in ["barracks", "fight", "betrayal", "entry"]
 

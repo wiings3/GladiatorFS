@@ -24,20 +24,31 @@ func run():
  root.add_child(game)
  game.test_no_input = true
  game.start_session(false,"Jitter test",1)
- game.actors[1].position = Vector3(-10, 0.05, 12)
  var record = Recorder.new()
  record.game = game
  record.process_priority = 1000
  root.add_child(record)
- await create_timer(1.8).timeout
- var lo = 999.0
- var hi = -999.0
- for x in record.values:
-  lo = minf(lo,x)
-  hi = maxf(hi,x)
- print("STRAFE CAMERA RELATIVE X RANGE: ", hi-lo, " m / ", record.values.size(), " rendered samples; interpolation ", ProjectSettings.get_setting("physics/common/physics_interpolation",false))
+ var failed = false
+ for view in [{"first": false, "zoom": 5.2}, {"first": false, "zoom": 2.0}, {"first": false, "zoom": 9.0}, {"first": true, "zoom": 5.2}]:
+  game.first_person = view.first
+  game.third_person_zoom = view.zoom
+  game.camera_distance = view.zoom
+  game.actors[1].position = Vector3(-6, 0.05, 7)
+  game.actors[1].move_velocity = Vector3.ZERO
+  game.actors[1].velocity = Vector3.ZERO
+  game.actors[1].reset_physics_interpolation()
+  record.values.clear()
+  record.time = 0
+  await create_timer(1.8).timeout
+  var lo = 999.0
+  var hi = -999.0
+  for x in record.values:
+   lo = minf(lo,x)
+   hi = maxf(hi,x)
+  print("STRAFE CAMERA: ", "FIRST PERSON" if view.first else "THIRD PERSON / " + str(view.zoom), "  X RANGE: ", hi-lo, " m / ", record.values.size(), " rendered samples")
+  failed = failed or record.values.size() < 30 or hi - lo >= 0.001
  game.leave_session()
  game.queue_free()
  record.queue_free()
  await process_frame
- quit(0 if hi - lo < 0.001 else 1)
+ quit(1 if failed else 0)

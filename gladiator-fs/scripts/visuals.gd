@@ -136,17 +136,24 @@ static func gladiator(root: Node3D, color: Color, beast: bool = false) -> Dictio
 		box(leg, Vector3(0.29, 0.12, 0.44), Vector3(0, -0.70, -0.09), WOOD)
 		box(leg, Vector3(0.27, 0.21, 0.30), Vector3(0, -0.48, 0), BRONZE)
 		legs.append(leg)
-	var torso = cylinder(root, 0.43, 0.63, Vector3(0, 1.20, 0), color, 0.48)
+	var chest = Node3D.new()
+	chest.name = "Torso"
+	root.add_child(chest)
+	var torso = cylinder(chest, 0.43, 0.63, Vector3(0, 1.20, 0), color, 0.48)
 	torso.scale.z = 0.7
-	cylinder(root, 0.48, 0.32, Vector3(0, 0.78, 0), color.darkened(0.15), 0.38)
-	box(root, Vector3(0.86, 0.12, 0.59), Vector3(0, 0.94, 0), WOOD)
-	box(root, Vector3(0.18, 0.17, 0.065), Vector3(0, 0.94, -0.32), BRONZE)
-	box(root, Vector3(0.45, 0.43, 0.40), Vector3(0, 1.74, -0.02), skin)
-	var helmet = cylinder(root, 0.39, 0.45, Vector3(0, 1.92, 0.015), BRONZE, 0.29)
+	cylinder(chest, 0.48, 0.32, Vector3(0, 0.78, 0), color.darkened(0.15), 0.38)
+	box(chest, Vector3(0.86, 0.12, 0.59), Vector3(0, 0.94, 0), WOOD)
+	box(chest, Vector3(0.18, 0.17, 0.065), Vector3(0, 0.94, -0.32), BRONZE)
+	# Group the head so the local first-person camera can see past its own helmet.
+	var head = Node3D.new()
+	head.name = "Head"
+	root.add_child(head)
+	box(head, Vector3(0.45, 0.43, 0.40), Vector3(0, 1.74, -0.02), skin)
+	var helmet = cylinder(head, 0.39, 0.45, Vector3(0, 1.92, 0.015), BRONZE, 0.29)
 	helmet.scale.z = 0.85
-	box(root, Vector3(0.53, 0.09, 0.10), Vector3(0, 1.79, -0.33), INK)
-	box(root, Vector3(0.09, 0.27, 0.10), Vector3(0, 1.72, -0.36), BRONZE)
-	box(root, Vector3(0.17, 0.38, 0.55), Vector3(0, 2.22, 0.01), color)
+	box(head, Vector3(0.53, 0.09, 0.10), Vector3(0, 1.79, -0.33), INK)
+	box(head, Vector3(0.09, 0.27, 0.10), Vector3(0, 1.72, -0.36), BRONZE)
+	box(head, Vector3(0.17, 0.38, 0.55), Vector3(0, 2.22, 0.01), color)
 	var hands = []
 	for side in [-1, 1]:
 		var arm = Node3D.new()
@@ -159,4 +166,4 @@ static func gladiator(root: Node3D, color: Color, beast: bool = false) -> Dictio
 		hand.position = Vector3(0, -0.32, -0.10)
 		arm.add_child(hand)
 		hands.append(hand)
-	return {"legs": legs, "left": hands[0], "right": hands[1], "left_arm": hands[0].get_parent(), "right_arm": hands[1].get_parent()}
+	return {"legs": legs, "head": head, "torso": chest, "left": hands[0], "right": hands[1], "left_arm": hands[0].get_parent(), "right_arm": hands[1].get_parent()}

@@ -121,7 +121,7 @@ func _build_menu() -> void:
 	status = label("LAN / direct IP  ·  UDP 27840\nSame PC? Open a second instance and join 127.0.0.1.", 14, MUTED)
 	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(status)
-	box.add_child(label("Tap LMB to stab · Hold + drag to swing\nHold RMB + aim to block · F kick\nWASD move · E pick up · R throw", 16, CREAM))
+	box.add_child(label("Tap LMB to stab · Hold + drag to swing\nHold RMB + aim to block · F kick\nWASD move · C view · Scroll wheel zoom", 16, CREAM))
 
 func _build_hud() -> void:
 	hud = Control.new()
@@ -170,9 +170,10 @@ func _build_hud() -> void:
 	positioned(hud, stamina_bar, Rect2(35, 790, 305, 7))
 	weapon_text = label("SWORD  /  SHIELD", 17, GOLD)
 	positioned(hud, weapon_text, Rect2(35, 807, 490, 40))
-	var reticle = label("·", 32, CREAM)
-	reticle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	positioned(hud, reticle, Rect2(700, 406, 40, 40))
+	var reticle = ColorRect.new()
+	reticle.color = CREAM
+	reticle.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	positioned(hud, reticle, Rect2(718.5, 448.5, 3, 3))
 	prompt = label("", 22, CREAM)
 	prompt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	positioned(hud, prompt, Rect2(370, 690, 700, 40))
@@ -188,7 +189,7 @@ func _build_hud() -> void:
 	hint = label("WASD MOVE    SHIFT SPRINT    SPACE JUMP    CTRL DODGE    TAP LMB STAB    HOLD LMB + DRAG SWING    RMB SHIELD", 14, CREAM)
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	positioned(hud, hint, Rect2(12, 850, 1416, 24))
-	var second = label("F KICK    E PICK UP / SWAP    Q DROP    R THROW    V THROW SHIELD    G DRAG DOWNED BODY    T TAUNT    ESC MENU", 13, MUTED)
+	var second = label("F KICK    E PICK UP    Q DROP    R THROW    V THROW SHIELD    G DRAG BODY    T TAUNT    C VIEW    WHEEL ZOOM    ESC MENU", 13, MUTED)
 	second.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	positioned(hud, second, Rect2(12, 877, 1416, 21))
 	spectator_hint = label("", 19, GOLD)

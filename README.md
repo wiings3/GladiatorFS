@@ -26,6 +26,8 @@ Godot's [hosting documentation](https://docs.godotengine.org/en/4.5/tutorials/ne
 | Input | Action |
 | --- | --- |
 | WASD / mouse | Move / aim the character and camera |
+| C | Switch between first person and third person |
+| Scroll wheel, in third person | Up: zoom closer; down: zoom farther away |
 | Shift / Space | Sprint / jump |
 | Ctrl | Short dodge with a cooldown |
 | Left mouse, tap | Thrust/stab in your aim direction |
@@ -44,7 +46,9 @@ Godot's [hosting documentation](https://docs.godotengine.org/en/4.5/tutorials/ne
 | Left / right arrows, when dead | Switch spectator target |
 | E / R, when dead | Cheer / throw a tomato toward the selected gladiator; six-second cooldown |
 
-The camera keeps following the mouse while you fight. Hold left click and sweep through an opponent; horizontal drags level the swing, vertical drags bring it across the front of the body, and diagonal drags retain both axes. A quick click with little mouse movement produces a forward stab, with a short recovery before the next one. Releasing a drag or a long hold does not add a stab. You can hold right click at the same time to keep aiming your shield. **Esc → Swing Sensitivity** adjusts weapon response independently of camera sensitivity.
+The game starts in third person. Press **C** to switch to first person or back at any time while alive. The scroll wheel smoothly changes third-person distance, with limits and wall collision; returning from first person restores your chosen distance. First person shows your actual hands, weapon, shield, and legs; your own head and torso are hidden locally to keep the view clear. Knockdowns briefly use third person for readability, then restore your selected view; death uses the spectator camera. The selected perspective survives round resets.
+
+The camera keeps following the mouse while you fight in either view. Hold left click and sweep through an opponent; horizontal drags level the swing, vertical drags bring it across the front of the body, and diagonal drags retain both axes. A quick click with little mouse movement produces a forward stab, with a short recovery before the next one. Releasing a drag or a long hold does not add a stab. You can hold right click at the same time to keep aiming your shield. **Esc → Swing Sensitivity** adjusts weapon response independently of camera sensitivity.
 
 Damage requires a committed stroke or the forward part of a stab. Holding a blade against someone, walking into them, or repeatedly wiggling it a little cannot chip away their health. Each new stroke needs meaningful travel in one direction; a contact spends that stroke. Faster swings and heavier impacts hurt more, head hits hurt much more than torso hits, and legs take less damage. Actual swept weapon contact determines where you hit. Walls, shields, bodies, and loose equipment interrupt the arc.
 
@@ -56,7 +60,7 @@ The menu does **not** pause a running arena. Heavy hits and kicks can disarm you
 
 ## Included in this prototype
 
-- **Third-person combat:** free camera movement during attacks, tap-to-stab, mouse-driven weapon arcs, aimed physical shields, forward kicks, stamina, hit-location damage, knockdowns, health, death, and body dragging.
+- **First- and third-person combat:** switchable perspective, third-person wheel zoom, free camera movement during attacks, tap-to-stab, mouse-driven weapon arcs, aimed physical shields, forward kicks, stamina, hit-location damage, knockdowns, health, death, and body dragging.
 - **Physical equipment:** sword, spear, hammer, shield, and throwable clay jars. Dropped and thrown equipment uses rigid-body physics and remains recoverable. No rarity, random rolls, upgrades, weapon levels, or special abilities. Reach, mass, inertia, and impact distinguish the weapon shapes and affect handling and movement.
 - **One arena and barracks:** a central trapdoor over spikes, a rotating beam, an animal gate, equipment on the floor, and between-round recovery.
 - **Four enemy archetypes:** sword/shield guard, spearman, heavy, and the champion. A charging boar can interrupt a long event.
@@ -99,9 +103,12 @@ Run from the repository root, substituting your Godot executable:
 godot --headless --path gladiator-fs --editor --import --quit
 godot --headless --path gladiator-fs --script res://tests/gameplay_test.gd
 godot --headless --path gladiator-fs --script res://tests/combat_test.gd
+godot --headless --path gladiator-fs --script res://tests/camera_test.gd
 godot --headless --path gladiator-fs --script res://tests/movement_test.gd
 python gladiator-fs/tests/run_network_test.py godot
 ```
+
+The camera suite verifies view switching, zoom limits/smoothing, wall collision, local-only head hiding, input during attacks/menus, knockdown recovery, spectating, and respawning. The movement regression covers first person and three third-person zoom distances.
 
 The gameplay suite checks movement, nonlethal barracks combat, kicks/disarming, dodging, throws and recovery, pickups, death/spectating, hazard activation, all four event flows, and cleanup. The combat suite checks lateral and overhead contact, shields, walls, misses, wiggle prevention, spear reach, hit speed/location, tap/hold separation, physical stabs, heavy windup/release, NPC reaction windows, forward kicks, stamina depletion/recovery, carried weight, and free camera controls. The movement test stresses strafe tracking at 30 physics ticks and 144 rendered frames per second. Character visuals and the camera share the same interpolated transform to prevent strafing wobble. The multiplayer suite launches **four separate Godot processes** and checks joining, remote movement, weapon motion, shield aim, stabs, stamina replication, throwing, world replication, the PvP transition, death, spectator interaction, and disconnects. The development pass also rendered and inspected the menu, barracks, arena, pit, weapon/shield/kick/thrust poses, stamina HUD, and settings UI at 1280 × 800.
 
