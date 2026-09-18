@@ -92,7 +92,7 @@ func _build_menu() -> void:
 	var box = VBoxContainer.new()
 	box.add_theme_constant_override("separation", 14)
 	menu.add_child(box)
-	box.add_child(label("THE UNLUCKY FEW  /  PROTOTYPE 0.1", 15, GOLD))
+	box.add_child(label("THE UNLUCKY FEW  /  PROTOTYPE 0.2", 15, GOLD))
 	box.add_child(label("GLADIATOR\nFRIENDSLOP", 43))
 	box.add_child(label("A very bad day at the arena.", 18, MUTED))
 	box.add_child(HSeparator.new())
@@ -119,7 +119,7 @@ func _build_menu() -> void:
 	status = label("LAN / direct IP  ·  UDP 27840\nSame PC? Open a second instance and join 127.0.0.1.", 14, MUTED)
 	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(status)
-	box.add_child(label("WASD move   ·   Mouse aim   ·   LMB attack\nRMB block   ·   F kick   ·   E pick up\nR throw   ·   Q drop   ·   T taunt", 16, CREAM))
+	box.add_child(label("Hold LMB + drag mouse to swing\nHold RMB + aim mouse to block\nWASD move · F kick · E pick up · R throw", 16, CREAM))
 
 func _build_hud() -> void:
 	hud = Control.new()
@@ -176,10 +176,10 @@ func _build_hud() -> void:
 	feed = label("", 17, GOLD)
 	feed.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	positioned(hud, feed, Rect2(774, 790, 630, 40))
-	hint = label("WASD MOVE    SHIFT SPRINT    SPACE JUMP    CTRL DODGE    LMB ATTACK    RMB BLOCK    F KICK", 14, CREAM)
+	hint = label("WASD MOVE    SHIFT SPRINT    SPACE JUMP    CTRL DODGE    HOLD LMB + DRAG TO SWING    HOLD RMB TO AIM SHIELD", 14, CREAM)
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	positioned(hud, hint, Rect2(12, 850, 1416, 24))
-	var second = label("E PICK UP / SWAP    Q DROP    R THROW    V THROW SHIELD    G DRAG DOWNED BODY    T TAUNT    ESC MENU", 13, MUTED)
+	var second = label("F KICK    E PICK UP / SWAP    Q DROP    R THROW    V THROW SHIELD    G DRAG DOWNED BODY    T TAUNT    ESC MENU", 13, MUTED)
 	second.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	positioned(hud, second, Rect2(12, 877, 1416, 21))
 	spectator_hint = label("", 19, GOLD)
@@ -193,7 +193,7 @@ func _build_hud() -> void:
 func _build_pause() -> void:
 	pause_panel = PanelContainer.new()
 	pause_panel.add_theme_stylebox_override("panel", style(Color("20262c"), GOLD, 1))
-	positioned(root, pause_panel, Rect2(485, 205, 470, 470))
+	positioned(root, pause_panel, Rect2(485, 155, 470, 575))
 	var box = VBoxContainer.new()
 	box.add_theme_constant_override("separation", 20)
 	pause_panel.add_child(box)
@@ -208,6 +208,14 @@ func _build_pause() -> void:
 	sensitivity.value = 1
 	sensitivity.value_changed.connect(func(value): game.sensitivity = value)
 	box.add_child(sensitivity)
+	box.add_child(label("SWING SENSITIVITY", 15, GOLD))
+	var swing = HSlider.new()
+	swing.min_value = 0.5
+	swing.max_value = 2.0
+	swing.step = 0.05
+	swing.value = 1
+	swing.value_changed.connect(func(value): game.swing_sensitivity = value)
+	box.add_child(swing)
 	box.add_child(label("VOLUME", 15, GOLD))
 	var volume = HSlider.new()
 	volume.min_value = 0

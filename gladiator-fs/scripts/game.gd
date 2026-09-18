@@ -6,6 +6,7 @@ const Arena = preload("res://scripts/arena.gd")
 const Interface = preload("res://scripts/interface.gd")
 const Sound = preload("res://scripts/arena_audio.gd")
 const V = preload("res://scripts/visuals.gd")
+const Melee = preload("res://scripts/melee_physics.gd")
 const MODES = ["Free-for-All", "Co-op Survival", "Champion Fight", "Last Champion"]
 const PORT = 27840
 const COLORS = [Color("398b91"), Color("b74a37"), Color("7f73a6"), Color("c19435")]
@@ -41,6 +42,9 @@ var pending_snapshots = {}
 var input_clock = 0.0
 var crowd_clock = 0.0
 var sensitivity = 1.0
+var swing_sensitivity = 1.0
+var mouse_grip = false
+var mouse_weapon_target = Melee.REST
 var camera_yaw = 0.0
 var camera_pitch = -0.30
 var camera_center = Vector3(0, 1.5, 25)
@@ -57,12 +61,14 @@ func _ready() -> void:
 	name = "Main"
 	arena = Arena.new()
 	arena.name = "Arena"
+	arena.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	add_child(arena)
 	camera = Camera3D.new()
 	camera.name = "Camera"
 	camera.fov = 68
 	camera.far = 180
 	camera.current = true
+	camera.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	add_child(camera)
 	sound = Sound.new()
 	add_child(sound)
@@ -191,11 +197,14 @@ func _show_game() -> void:
 	ui.hud.show()
 	ui.pause_panel.hide()
 	menu_open = false
+	mouse_grip = false
+	mouse_weapon_target = Melee.REST
 	camera_initialized = false
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 func toggle_menu() -> void:
 	menu_open = not menu_open
+	mouse_grip = false
 	ui.pause_panel.visible = menu_open
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if menu_open else Input.MOUSE_MODE_CAPTURED
 
@@ -220,6 +229,7 @@ func spawn_actor(id: int, actor_name: String, type: String, pos: Vector3, is_bot
 		actor.shield = false
 	add_child(actor)
 	actors[id] = actor
+	actor.reset_physics_interpolation()
 	return actor
 
 func remove_actor(id: int) -> void:
@@ -291,6 +301,7 @@ func enter_barracks() -> void:
 		actor.position = Vector3(-2.25 + index * 1.5, 0.05, 26)
 		actor.velocity = Vector3.ZERO
 		actor.impulse = Vector3.ZERO
+		actor.move_velocity = Vector3.ZERO
 		actor.health = 100
 		actor.alive = true
 		actor.held = "sword"
@@ -302,6 +313,12 @@ func enter_barracks() -> void:
 		actor.collision_layer = 2
 		actor.collision_mask = 1 | 2
 		actor.input_yaw = 0
+		actor.input_pitch = 0
+		actor.guard_raise = 0
+		actor.guard_pitch = 0
+		actor.shield_body.collision_layer = 0
+		actor.reset_weapon()
+		actor.reset_physics_interpolation()
 		index += 1
 	var kinds = ["sword", "spear", "hammer", "shield"]
 	for n in range(4):
@@ -333,6 +350,8 @@ func start_fight() -> void:
 	for actor in human_actors():
 		if actor.position.z > 15:
 			actor.position = Vector3(-4.5 + index * 3, 0.1, 12.5)
+			actor.reset_weapon()
+			actor.reset_physics_interpolation()
 		actor.health = 100
 		actor.grabber = 0
 		actor.dragging = 0
@@ -385,6 +404,8 @@ func _physics_process(delta: float) -> void:
 			if actor.bot and actor.alive and phase in ["fight", "betrayal"]:
 				think(actor, delta)
 			actor.server_tick(delta)
+		for actor in actors.values():
+			actor.finish_melee_tick(delta)
 		advance_round(delta)
 		snapshot_clock += delta
 		if networked and snapshot_clock >= 0.05:
@@ -474,6 +495,7 @@ func think(actor, _delta: float) -> void:
 	actor.input_block = false
 	if target == null:
 		actor.input_move = Vector2.ZERO
+		actor.input_attack = false
 		return
 	var offset = target.position - actor.position
 	offset.y = 0
@@ -481,7 +503,7 @@ func think(actor, _delta: float) -> void:
 	var direction = offset.normalized()
 	if actor.archetype != "boar" or actor.attack_time <= 0:
 		actor.input_yaw = atan2(-direction.x, -direction.z)
-	var reach = 3.25 if actor.held == "spear" else 1.85
+	var reach = 2.65 if actor.held == "spear" else 1.55
 	var destination = target.position
 	# Route around the square pit rather than walking directly through it.
 	if pit_open:
@@ -496,12 +518,16 @@ func think(actor, _delta: float) -> void:
 	steering = steering.normalized()
 	if distance < reach:
 		steering = Vector3.ZERO
-		actor.request_action("attack")
+		if actor.archetype != "boar":
+			actor.drive_ai_weapon(target, _delta)
+	elif actor.archetype != "boar":
+		actor.input_attack = false
+		actor.bot_swing_clock = 0
 	if actor.held == "spear" and distance < 1.6:
 		steering = -direction * 0.65
 	if actor.archetype == "boar" and distance < 7:
 		actor.request_action("attack")
-	if actor.shield and target.attack_time > 0 and distance < 3.5 and actor.attack_time <= 0:
+	if actor.shield and target.input_attack and distance < 3.5 and not actor.input_attack:
 		actor.input_block = true
 	if actor.archetype == "champion" and target.blocking and distance < 1.9:
 		actor.request_action("kick")
@@ -587,12 +613,11 @@ func blocking_shield(from: Vector3, to: Vector3, ignored_id: int):
 	return guard
 
 func resolve_strike(attacker, kick: bool) -> void:
-	var reach = 1.7 if kick else 2.35
+	# Kicks keep a short body-range query. Weapons exclusively use swept geometry.
 	if not kick:
-		if attacker.held == "spear": reach = 3.9
-		elif attacker.held == "": reach = 1.35
+		return
 	var closest = null
-	var best_distance = reach
+	var best_distance = 1.7
 	var origin = attacker.position + Vector3(0, 1.2, 0)
 	for target in actors.values():
 		if target == attacker or not target.alive:
@@ -602,8 +627,7 @@ func resolve_strike(attacker, kick: bool) -> void:
 			continue
 		offset.y = 0
 		var distance = offset.length()
-		var cone = 0.84 if attacker.held == "spear" and not kick else 0.40
-		if distance < best_distance and attacker.forward().dot(offset.normalized()) > cone:
+		if distance < best_distance and attacker.forward().dot(offset.normalized()) > 0.40:
 			closest = target
 			best_distance = distance
 	if closest == null:
@@ -613,56 +637,68 @@ func resolve_strike(attacker, kick: bool) -> void:
 	var wall_query = PhysicsRayQueryParameters3D.create(origin, end, 1)
 	if not get_world_3d().direct_space_state.intersect_ray(wall_query).is_empty():
 		return
-	if not kick:
-		var guard = blocking_shield(origin, end, attacker.uid)
-		if guard:
+	closest.take_hit(5, attacker.forward() * 9.5 + Vector3.UP * 3.4, attacker.uid, "kick")
+
+func resolve_weapon_contact(attacker, hit: Dictionary) -> void:
+	var collider = hit.collider
+	if not is_instance_valid(collider):
+		return
+	var speed = hit.velocity.length()
+	var follow_through = 0.38 + Melee.properties(attacker.held).inertia * 0.11
+	var has_intent = attacker.weapon_motion_age < follow_through and attacker.weapon_travel > 0.12 and attacker.weapon_velocity.length() > 0.65
+	if collider.has_meta("guard_id"):
+		var guard = actors.get(collider.get_meta("guard_id"))
+		if guard and attacker.weapon_contact_cooldown <= 0 and speed > 1:
 			guard.favor += 1
-			guard.impulse += attacker.forward() * (4 if attacker.held == "hammer" else 1.2)
-			event("block", guard.position + Vector3.UP, "")
+			guard.impulse += attacker.forward() * minf(4.0, Melee.properties(attacker.held).mass * speed * 0.12)
+			event("block", hit.point, "")
+			attacker.weapon_contact_cooldown = 0.20
+		return
+	if collider is CharacterBody3D:
+		if not has_intent or not hit.edge or speed < 1.7 or attacker.weapon_hit_cooldowns.has(collider.uid):
 			return
-	var heavy = attacker.held == "hammer" and not kick
-	var amount = 5.0 if kick else 25.0
-	if attacker.held == "" and not kick:
-		amount = 10.0
-	if closest.blocking and not closest.shield and not kick:
-		var incoming = (attacker.position - closest.position).normalized()
-		if closest.forward().dot(incoming) > 0.3:
-			amount *= 0.5
-	var push = attacker.forward() * (9.5 if kick or heavy else 3.0) + Vector3.UP * (3.4 if kick or heavy else 1.0)
-	closest.take_hit(amount, push, attacker.uid, "kick" if kick else "hit")
+		var direction = hit.velocity.normalized()
+		var force = clampf(Melee.properties(attacker.held).mass * speed * 0.28, 2, 11)
+		var damage = clampf(speed * 4, 6, 30) if attacker.held != "" else clampf(speed * 2, 4, 10)
+		attacker.weapon_hit_cooldowns[collider.uid] = 0.5
+		attacker.weapon_travel = 0
+		attacker.weapon_contacts += 1
+		collider.take_hit(damage, direction * force + Vector3.UP * force * 0.22, attacker.uid, "swing")
+	elif collider is RigidBody3D:
+		if speed > 1 and has_intent:
+			collider.apply_impulse(hit.velocity.normalized() * minf(9, speed * Melee.properties(attacker.held).mass * 0.35), hit.point - collider.global_position)
+	elif speed > 1.5 and attacker.weapon_contact_cooldown <= 0:
+		event("block", hit.point, "")
+		attacker.weapon_contact_cooldown = 0.20
 
 func sweep_projectile(item, from: Vector3, to: Vector3) -> void:
 	if item.flight_time <= 0 or from.distance_to(to) < 0.001:
 		return
-	# Check shields before hurt capsules. Collision with architecture is handled by the rigid body.
-	var guard = blocking_shield(from, to, item.thrower)
-	if guard:
-		item.flight_time = 0
-		item.linear_velocity = guard.forward() * 4 + Vector3.UP * 2
-		guard.favor += 3
-		event("block", to, "")
+	var excluded: Array[RID] = [item.get_rid()]
+	if item.age < 0.35 and actors.has(item.thrower):
+		excluded.append(actors[item.thrower].get_rid())
+		excluded.append(actors[item.thrower].shield_body.get_rid())
+	# Use the same physical shield as melee. The nearest body or shield wins;
+	# a low or rearward shield cannot protect a body already struck in front of it.
+	var contact = Melee.contact(get_world_3d().direct_space_state, from, to, 0.12, excluded, 2 | 8)
+	if contact.is_empty() or not is_instance_valid(contact.collider):
 		return
-	var hit = null
-	var best_t = 2.0
-	var segment = to - from
-	for actor in actors.values():
-		if not actor.alive or (actor.uid == item.thrower and item.age < 0.35):
-			continue
-		var center = actor.position + Vector3(0, 1.0, 0)
-		var t = clampf((center - from).dot(segment) / segment.length_squared(), 0, 1)
-		var point = from + segment * t
-		if Vector2(point.x - center.x, point.z - center.z).length() < 0.65 and absf(point.y - center.y) < 1.0 and t < best_t:
-			hit = actor
-			best_t = t
-	if hit:
+	var collider = contact.collider
+	item.flight_time = 0
+	if collider.has_meta("guard_id"):
+		var guard = actors.get(collider.get_meta("guard_id"))
+		if guard:
+			item.linear_velocity = contact.normal * 4 + Vector3.UP * 2
+			guard.favor += 3
+			event("block", contact.point, "")
+	elif collider is CharacterBody3D:
 		var owner_id = item.thrower
-		item.flight_time = 0
 		var push = item.linear_velocity.normalized() * (9.0 if item.kind == "hammer" else 4.0)
 		if item.kind == "food":
-			hit.health = minf(100, hit.health + 25)
+			collider.health = minf(100, collider.health + 25)
 			remove_item(item.uid)
 		else:
-			hit.take_hit(5 if item.kind == "trash" else 25, push + Vector3.UP, owner_id, "throw")
+			collider.take_hit(5 if item.kind == "trash" else 25, push + Vector3.UP, owner_id, "throw")
 			item.linear_velocity *= -0.15
 		if actors.has(owner_id):
 			actors[owner_id].favor += 4
@@ -729,35 +765,43 @@ func collect_input(delta: float) -> void:
 	var move = Vector2.ZERO
 	var block = false
 	var sprint = false
+	var grip = false
 	if not menu_open:
 		var raw = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 		var world = Vector3(raw.x, 0, raw.y).rotated(Vector3.UP, camera_yaw)
 		move = Vector2(world.x, world.z)
 		block = Input.is_action_pressed("guard")
 		sprint = Input.is_action_pressed("sprint")
+		grip = mouse_grip
 	if authority:
-		apply_input(local_id(), move, camera_yaw, block, sprint, camera_pitch)
+		apply_input(local_id(), move, camera_yaw, block, sprint, camera_pitch, grip, mouse_weapon_target)
 	else:
 		input_clock += delta
 		if input_clock >= 1.0 / 30.0:
 			input_clock = 0
-			submit_input.rpc_id(1, move, camera_yaw, block, sprint, camera_pitch)
+			submit_input.rpc_id(1, move, camera_yaw, block, sprint, camera_pitch, grip, mouse_weapon_target)
 
-func apply_input(id: int, move: Vector2, yaw: float, block: bool, sprint: bool, pitch: float = 0.0) -> void:
-	if not actors.has(id) or not move.is_finite() or not is_finite(yaw) or not is_finite(pitch):
+func apply_input(id: int, move: Vector2, yaw: float, block: bool, sprint: bool, pitch: float = 0.0, grip: bool = false, hand: Vector2 = Melee.REST) -> void:
+	if not actors.has(id) or not move.is_finite() or not is_finite(yaw) or not is_finite(pitch) or not hand.is_finite():
 		return
 	var actor = actors[id]
 	actor.input_move = move.limit_length(1.0)
 	actor.input_yaw = wrapf(yaw, -PI, PI)
-	actor.input_pitch = clampf(pitch, -1.0, 0.7)
+	actor.input_pitch = clampf(pitch, -1.0, 0.9)
 	actor.input_block = block
 	actor.input_sprint = sprint
+	var bounded_hand = Melee.angle_limit(hand)
+	var previous_target = actor.weapon_target if actor.input_attack else actor.weapon_angle
+	if grip and bounded_hand.distance_to(previous_target) > 0.004:
+		actor.weapon_motion_age = 0
+	actor.input_attack = grip
+	actor.weapon_target = bounded_hand
 	actor.input_age = 0
 
 @rpc("any_peer", "call_remote", "unreliable_ordered", 1)
-func submit_input(move: Vector2, yaw: float, block: bool, sprint: bool, pitch: float = 0.0) -> void:
+func submit_input(move: Vector2, yaw: float, block: bool, sprint: bool, pitch: float = 0.0, grip: bool = false, hand: Vector2 = Melee.REST) -> void:
 	if authority:
-		apply_input(multiplayer.get_remote_sender_id(), move, yaw, block, sprint, pitch)
+		apply_input(multiplayer.get_remote_sender_id(), move, yaw, block, sprint, pitch, grip, hand)
 
 @rpc("any_peer", "call_remote", "reliable", 0)
 func submit_action(action: String, requested_target: int = 0) -> void:
@@ -783,11 +827,12 @@ func _unhandled_input(input: InputEvent) -> void:
 	if menu_open:
 		return
 	if input is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
-		camera_yaw -= input.relative.x * 0.003 * sensitivity
-		camera_pitch = clampf(camera_pitch - input.relative.y * 0.003 * sensitivity, -1.0, 0.3)
+		steer_mouse(input.relative)
 	var action = ""
-	if input is InputEventMouseButton and input.pressed and input.button_index == MOUSE_BUTTON_LEFT:
-		action = "attack"
+	if input is InputEventMouseButton and input.button_index == MOUSE_BUTTON_LEFT:
+		mouse_grip = input.pressed
+		if mouse_grip and actors.has(local_id()):
+			mouse_weapon_target = actors[local_id()].weapon_angle
 	if input is InputEventKey and input.pressed and not input.echo:
 		var controls = {KEY_SPACE: "jump", KEY_CTRL: "dodge", KEY_F: "kick", KEY_E: "pickup", KEY_Q: "drop", KEY_R: "throw", KEY_V: "throw_shield", KEY_T: "taunt", KEY_G: "grab"}
 		action = controls.get(input.physical_keycode, "")
@@ -802,6 +847,21 @@ func _unhandled_input(input: InputEvent) -> void:
 			act(local_id(), action, spectating_id)
 		else:
 			submit_action.rpc_id(1, action, spectating_id)
+
+func steer_mouse(motion: Vector2) -> void:
+	if mouse_grip:
+		var drag = motion * swing_sensitivity
+		mouse_weapon_target -= drag * 0.010
+		# A mostly vertical pull naturally crosses the front of the body; a lateral
+		# pull levels the hand. Diagonal drags keep both axes under direct control.
+		if absf(drag.y) > absf(drag.x) * 1.5:
+			mouse_weapon_target.x = move_toward(mouse_weapon_target.x, 0.24, absf(drag.y) * 0.010)
+		elif absf(drag.x) > absf(drag.y) * 1.5:
+			mouse_weapon_target.y = move_toward(mouse_weapon_target.y, 0.02, absf(drag.x) * 0.009)
+		mouse_weapon_target = Melee.angle_limit(mouse_weapon_target)
+	else:
+		camera_yaw -= motion.x * 0.003 * sensitivity
+		camera_pitch = clampf(camera_pitch - motion.y * 0.003 * sensitivity, -1.0, 0.9)
 
 func cycle_spectator(direction: int) -> void:
 	var list = []
@@ -912,6 +972,7 @@ func show_event(cue: String, pos: Vector3, text: String) -> void:
 	if cue in ["hit", "block"]:
 		for n in range(5):
 			var spark = V.box(self, Vector3.ONE * randf_range(0.035, 0.09), pos, Color("ffe3a0") if cue == "block" else Color("ba543b"))
+			spark.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 			effect_nodes.append({"node": spark, "v": Vector3(randf_range(-3, 3), randf_range(1, 4), randf_range(-3, 3)), "life": 0.35})
 
 func _process(delta: float) -> void:
@@ -943,15 +1004,17 @@ func update_camera(delta: float) -> void:
 		if not actors.has(spectating_id) or not actors[spectating_id].alive:
 			cycle_spectator(1)
 		var target = actors.get(spectating_id)
-		var focus = target.position + Vector3.UP if target else Vector3.ZERO
+		var focus = target.get_global_transform_interpolated().origin + Vector3.UP if target else Vector3.ZERO
 		camera.position = camera.position.lerp(Vector3(0, 14, 21), minf(delta * 3, 1))
 		camera.look_at(focus, Vector3.UP)
 		return
-	var focus = actor.position + Vector3(0, 1.65, 0)
+	var focus = actor.get_global_transform_interpolated().origin + Vector3(0, 1.65, 0)
 	if not camera_initialized:
 		camera_center = focus
 		camera_initialized = true
-	camera_center = camera_center.lerp(focus, minf(delta * 20, 1))
+	# Follow exactly the position at which the character is rendered. A second
+	# smoothing filter here makes strafing visibly wobble relative to the camera.
+	camera_center = focus
 	var basis_yaw = Basis(Vector3.UP, camera_yaw)
 	var offset = Vector3(0.55, -sin(camera_pitch) * 5.2, cos(camera_pitch) * 5.2)
 	var desired = camera_center + basis_yaw * offset

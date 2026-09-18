@@ -1,5 +1,6 @@
 extends RigidBody3D
 const V = preload("res://scripts/visuals.gd")
+const Melee = preload("res://scripts/melee_physics.gd")
 var game
 var uid = 0
 var kind = "sword"
@@ -14,7 +15,7 @@ var replica_initialized = false
 func _ready() -> void:
 	collision_layer = 4
 	collision_mask = 1
-	mass = 2.0 if kind == "hammer" else 1.0
+	mass = maxf(0.1, Melee.properties(kind).mass)
 	continuous_cd = true
 	var mesh = V.weapon(kind)
 	add_child(mesh)
@@ -59,4 +60,5 @@ func receive(data: Dictionary) -> void:
 	if not replica_initialized or global_position.distance_to(target_position) > 6:
 		global_position = target_position
 		rotation = target_rotation
+		reset_physics_interpolation()
 		replica_initialized = true

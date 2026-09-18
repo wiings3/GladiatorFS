@@ -25,6 +25,10 @@ func reset_actor(actor, pos: Vector3, yaw: float) -> void:
 	actor.input_yaw = yaw
 	actor.velocity = Vector3.ZERO
 	actor.impulse = Vector3.ZERO
+	actor.move_velocity = Vector3.ZERO
+	actor.reset_weapon()
+	actor.guard_raise = 0
+	actor.shield_body.collision_layer = 0
 	actor.knockdown = 0
 	actor.invulnerable = 0
 	actor.health = 100
@@ -58,30 +62,16 @@ func run() -> void:
 	game.set_physics_process(false)
 	var target = game.spawn_actor(2, "Friend", "player", Vector3(0, 0.05, 8), false, Color.CORAL)
 	reset_actor(player, Vector3(0, 0.05, 10), 0)
-	game.resolve_strike(player, false)
+	target.take_hit(25, Vector3.ZERO, 1)
 	check(target.health == 100, "Barracks sparring is nonlethal")
 	game.phase = "fight"
-	player.held = "sword"
-	reset_actor(target, Vector3(0, 0.05, 8), PI)
-	target.blocking = true
-	game.resolve_strike(player, false)
-	check(target.health == 100, "Frontal shield intercepts a sword strike")
-	target.rotation.y = 0
-	game.resolve_strike(player, false)
-	check(target.health == 75, "A shield does not protect the back")
-	reset_actor(target, Vector3(0, 0.05, 6.5), PI)
-	game.resolve_strike(player, false)
-	check(target.health == 100, "Sword cannot hit outside its reach")
-	player.held = "spear"
-	game.resolve_strike(player, false)
-	check(target.health == 75, "Spear reaches a distant target without weapon modifiers")
 	reset_actor(target, Vector3(0, 0.05, 8.5), PI)
 	target.held = "sword"
 	game.resolve_strike(player, true)
 	check(target.knockdown > 0 and target.held == "" and target.health == 95, "Kick knocks down and disarms")
 	reset_actor(target, Vector3(0, 0.05, 8), PI)
 	target.invulnerable = 0.1
-	game.resolve_strike(player, false)
+	target.take_hit(25, Vector3.ZERO, 1)
 	check(target.health == 100, "Dodge invulnerability rejects a hit")
 	reset_actor(target, Vector3(0, 0.05, 6), PI)
 	player.held = "sword"

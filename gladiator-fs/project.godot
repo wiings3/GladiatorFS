@@ -31,8 +31,10 @@ environment/defaults/default_clear_color=Color(0.55, 0.69, 0.72, 1)
 
 [physics]
 common/physics_ticks_per_second=60
+common/physics_interpolation=true
 
 [layer_names]
 3d_physics/layer_1="Architecture"
 3d_physics/layer_2="Gladiators"
 3d_physics/layer_3="Loose equipment"
+3d_physics/layer_4="Raised shields"
