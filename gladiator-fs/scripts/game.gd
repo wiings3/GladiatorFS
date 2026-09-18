@@ -44,6 +44,8 @@ var crowd_clock = 0.0
 var sensitivity = 1.0
 var swing_sensitivity = 1.0
 var mouse_grip = false
+var mouse_press_time = 0
+var mouse_drag_distance = 0.0
 var mouse_weapon_target = Melee.REST
 var camera_yaw = 0.0
 var camera_pitch = -0.30
@@ -303,6 +305,13 @@ func enter_barracks() -> void:
 		actor.impulse = Vector3.ZERO
 		actor.move_velocity = Vector3.ZERO
 		actor.health = 100
+		actor.stamina = 100
+		actor.exhausted = false
+		actor.stamina_delay = 0
+		actor.guard_broken = 0
+		actor.kick_time = 0
+		actor.dodge_time = 0
+		actor.dodge_cooldown = 0
 		actor.alive = true
 		actor.held = "sword"
 		actor.shield = true
@@ -502,7 +511,8 @@ func think(actor, _delta: float) -> void:
 	var distance = offset.length()
 	var direction = offset.normalized()
 	if actor.archetype != "boar" or actor.attack_time <= 0:
-		actor.input_yaw = atan2(-direction.x, -direction.z)
+		var turn = wrapf(atan2(-direction.x, -direction.z) - actor.input_yaw, -PI, PI)
+		actor.input_yaw += clampf(turn, -_delta * 3.5, _delta * 3.5)
 	var reach = 2.65 if actor.held == "spear" else 1.55
 	var destination = target.position
 	# Route around the square pit rather than walking directly through it.
@@ -527,8 +537,7 @@ func think(actor, _delta: float) -> void:
 		steering = -direction * 0.65
 	if actor.archetype == "boar" and distance < 7:
 		actor.request_action("attack")
-	if actor.shield and target.input_attack and distance < 3.5 and not actor.input_attack:
-		actor.input_block = true
+	actor.drive_ai_defense(target, _delta)
 	if actor.archetype == "champion" and target.blocking and distance < 1.9:
 		actor.request_action("kick")
 	# Separation keeps groups readable and prevents every NPC occupying one point.
@@ -617,7 +626,7 @@ func resolve_strike(attacker, kick: bool) -> void:
 	if not kick:
 		return
 	var closest = null
-	var best_distance = 1.7
+	var best_distance = 1.9
 	var origin = attacker.position + Vector3(0, 1.2, 0)
 	for target in actors.values():
 		if target == attacker or not target.alive:
@@ -643,33 +652,41 @@ func resolve_weapon_contact(attacker, hit: Dictionary) -> void:
 	var collider = hit.collider
 	if not is_instance_valid(collider):
 		return
-	var speed = hit.velocity.length()
-	var follow_through = 0.38 + Melee.properties(attacker.held).inertia * 0.11
-	var has_intent = attacker.weapon_motion_age < follow_through and attacker.weapon_travel > 0.12 and attacker.weapon_velocity.length() > 0.65
+	var speed = hit.speed
+	var has_intent = attacker.committed_swing() and speed >= 2.8
 	if collider.has_meta("guard_id"):
 		var guard = actors.get(collider.get_meta("guard_id"))
-		if guard and attacker.weapon_contact_cooldown <= 0 and speed > 1:
+		if guard and has_intent and attacker.weapon_contact_cooldown <= 0:
 			guard.favor += 1
+			guard.absorb_block(speed, Melee.properties(attacker.held).mass)
 			guard.impulse += attacker.forward() * minf(4.0, Melee.properties(attacker.held).mass * speed * 0.12)
 			event("block", hit.point, "")
 			attacker.weapon_contact_cooldown = 0.20
+			attacker.swing_spent = true
 		return
 	if collider is CharacterBody3D:
-		if not has_intent or not hit.edge or speed < 1.7 or attacker.weapon_hit_cooldowns.has(collider.uid):
+		if not has_intent or not hit.edge or attacker.weapon_hit_cooldowns.has(collider.uid):
 			return
 		var direction = hit.velocity.normalized()
-		var force = clampf(Melee.properties(attacker.held).mass * speed * 0.28, 2, 11)
-		var damage = clampf(speed * 4, 6, 30) if attacker.held != "" else clampf(speed * 2, 4, 10)
+		var force = clampf(Melee.properties(attacker.held).mass * speed * 0.24, 2, 13)
+		var height = collider.to_local(hit.point).y
+		var damage = Melee.impact_damage(attacker.held, speed, height)
 		attacker.weapon_hit_cooldowns[collider.uid] = 0.5
 		attacker.weapon_travel = 0
+		attacker.swing_spent = true
 		attacker.weapon_contacts += 1
+		var health_before = collider.health
 		collider.take_hit(damage, direction * force + Vector3.UP * force * 0.22, attacker.uid, "swing")
+		if height >= 1.60 and collider.health < health_before and phase in ["fight", "betrayal"]:
+			attacker.favor += 3
+			event("crowd", hit.point, "BONK! " + collider.title + " felt that one.")
 	elif collider is RigidBody3D:
 		if speed > 1 and has_intent:
 			collider.apply_impulse(hit.velocity.normalized() * minf(9, speed * Melee.properties(attacker.held).mass * 0.35), hit.point - collider.global_position)
 	elif speed > 1.5 and attacker.weapon_contact_cooldown <= 0:
 		event("block", hit.point, "")
 		attacker.weapon_contact_cooldown = 0.20
+		if has_intent: attacker.swing_spent = true
 
 func sweep_projectile(item, from: Vector3, to: Vector3) -> void:
 	if item.flight_time <= 0 or from.distance_to(to) < 0.001:
@@ -688,6 +705,7 @@ func sweep_projectile(item, from: Vector3, to: Vector3) -> void:
 	if collider.has_meta("guard_id"):
 		var guard = actors.get(collider.get_meta("guard_id"))
 		if guard:
+			guard.absorb_block(item.linear_velocity.length(), Melee.properties(item.kind).mass)
 			item.linear_velocity = contact.normal * 4 + Vector3.UP * 2
 			guard.favor += 3
 			event("block", contact.point, "")
@@ -790,12 +808,7 @@ func apply_input(id: int, move: Vector2, yaw: float, block: bool, sprint: bool, 
 	actor.input_pitch = clampf(pitch, -1.0, 0.9)
 	actor.input_block = block
 	actor.input_sprint = sprint
-	var bounded_hand = Melee.angle_limit(hand)
-	var previous_target = actor.weapon_target if actor.input_attack else actor.weapon_angle
-	if grip and bounded_hand.distance_to(previous_target) > 0.004:
-		actor.weapon_motion_age = 0
-	actor.input_attack = grip
-	actor.weapon_target = bounded_hand
+	actor.set_weapon_input(grip, hand)
 	actor.input_age = 0
 
 @rpc("any_peer", "call_remote", "unreliable_ordered", 1)
@@ -830,9 +843,7 @@ func _unhandled_input(input: InputEvent) -> void:
 		steer_mouse(input.relative)
 	var action = ""
 	if input is InputEventMouseButton and input.button_index == MOUSE_BUTTON_LEFT:
-		mouse_grip = input.pressed
-		if mouse_grip and actors.has(local_id()):
-			mouse_weapon_target = actors[local_id()].weapon_angle
+		action = weapon_button(input.pressed)
 	if input is InputEventKey and input.pressed and not input.echo:
 		var controls = {KEY_SPACE: "jump", KEY_CTRL: "dodge", KEY_F: "kick", KEY_E: "pickup", KEY_Q: "drop", KEY_R: "throw", KEY_V: "throw_shield", KEY_T: "taunt", KEY_G: "grab"}
 		action = controls.get(input.physical_keycode, "")
@@ -848,8 +859,21 @@ func _unhandled_input(input: InputEvent) -> void:
 		else:
 			submit_action.rpc_id(1, action, spectating_id)
 
+func weapon_button(pressed: bool) -> String:
+	var tap = not pressed and mouse_grip and Time.get_ticks_msec() - mouse_press_time <= 220 and mouse_drag_distance < 12.0
+	mouse_grip = pressed
+	if pressed:
+		mouse_press_time = Time.get_ticks_msec()
+		mouse_drag_distance = 0
+		if actors.has(local_id()): mouse_weapon_target = actors[local_id()].weapon_angle
+	return "stab" if tap else ""
+
 func steer_mouse(motion: Vector2) -> void:
+	# Looking and turning never stop, including throughout a held weapon swing.
+	camera_yaw -= motion.x * 0.003 * sensitivity
+	camera_pitch = clampf(camera_pitch - motion.y * 0.003 * sensitivity, -1.0, 0.9)
 	if mouse_grip:
+		mouse_drag_distance += motion.length()
 		var drag = motion * swing_sensitivity
 		mouse_weapon_target -= drag * 0.010
 		# A mostly vertical pull naturally crosses the front of the body; a lateral
@@ -859,9 +883,6 @@ func steer_mouse(motion: Vector2) -> void:
 		elif absf(drag.x) > absf(drag.y) * 1.5:
 			mouse_weapon_target.y = move_toward(mouse_weapon_target.y, 0.02, absf(drag.x) * 0.009)
 		mouse_weapon_target = Melee.angle_limit(mouse_weapon_target)
-	else:
-		camera_yaw -= motion.x * 0.003 * sensitivity
-		camera_pitch = clampf(camera_pitch - motion.y * 0.003 * sensitivity, -1.0, 0.9)
 
 func cycle_spectator(direction: int) -> void:
 	var list = []

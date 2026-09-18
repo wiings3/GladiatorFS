@@ -19,14 +19,16 @@ static func burden(weapon: String, shield: bool) -> float:
 	return properties(weapon).mass + (properties("shield").mass if shield else 0.0)
 
 static func movement_factor(weapon: String, shield: bool) -> float:
-	return 1.0 / (1.0 + burden(weapon, shield) * 0.055)
+	var weight = burden(weapon, shield)
+	# Ordinary kit stays nimble; most of the burden comes from genuinely heavy loads.
+	return 1.0 / (1.0 + weight * 0.008 + maxf(0, weight - 4.0) * 0.048)
 
 static func angle_limit(value: Vector2) -> Vector2:
 	return value.clamp(MIN_ANGLE, MAX_ANGLE)
 
-static func hand_frame(angles: Vector2) -> Transform3D:
+static func hand_frame(angles: Vector2, extension: float = 0.0) -> Transform3D:
 	var orientation = Basis(Vector3.UP, angles.x) * Basis(Vector3.RIGHT, angles.y)
-	var hand = Vector3(0.46, 1.38, -0.10) + orientation * Vector3(0, 0, -0.45)
+	var hand = Vector3(0.46, 1.38, -0.10) + orientation * Vector3(0, 0, -0.45 - extension)
 	return Transform3D(orientation, hand)
 
 static func shield_frame(pitch: float, raised: float) -> Transform3D:
@@ -34,16 +36,28 @@ static func shield_frame(pitch: float, raised: float) -> Transform3D:
 	var raised_center = Vector3(-0.17, 1.30, 0) + orientation * Vector3(0, 0, -0.72)
 	return Transform3D(orientation, Vector3(-0.60, 0.95, 0.03).lerp(raised_center, raised))
 
-static func integrate(angles: Vector2, speed: Vector2, target: Vector2, kind: String, delta: float) -> Array:
-	var inertia = 1.0 + properties(kind).inertia * 0.85
-	var stiffness = 105.0 / inertia
-	var damping = sqrt(stiffness) * 1.70
+static func integrate(angles: Vector2, speed: Vector2, target: Vector2, kind: String, delta: float, release: bool = false) -> Array:
+	var stiffness = 380.0 if kind != "spear" else 310.0
+	var damping = 30.0
+	var max_speed = 18.0
+	if kind == "hammer":
+		stiffness = 650.0 if release else 75.0
+		damping = 29.0 if release else 15.0
+		max_speed = 22.0 if release else 3.2
 	var acceleration = (angle_limit(target) - angles) * stiffness - speed * damping
-	speed = (speed + acceleration * delta).limit_length(10.5 / sqrt(inertia))
+	speed = (speed + acceleration * delta).limit_length(max_speed)
 	var next = angle_limit(angles + speed * delta)
 	if next.x == MIN_ANGLE.x or next.x == MAX_ANGLE.x: speed.x = 0
 	if next.y == MIN_ANGLE.y or next.y == MAX_ANGLE.y: speed.y = 0
 	return [next, speed]
+
+static func impact_damage(kind: String, speed: float, height: float) -> float:
+	# Shape, mass and speed determine impact. No equipment rolls or progression.
+	var mass = maxf(0.45, properties(kind).mass)
+	var impact = clampf(5.0 + pow(minf(speed, 16.0), 1.35) * sqrt(mass) * 1.05, 0, 65)
+	if kind == "": impact *= 0.4
+	var location = 2.2 if height >= 1.60 else (0.5 if height < 0.82 else 1.0)
+	return impact * location
 
 static func samples(kind: String) -> Array:
 	var p = properties(kind)
@@ -80,6 +94,8 @@ static func sweep(actor, previous: Transform3D, current: Transform3D, delta: flo
 	var space = actor.get_world_3d().direct_space_state
 	var subdivisions = maxi(1, ceili(actor.weapon_previous_angle.distance_to(actor.weapon_angle) / 0.07))
 	var points = actor.weapon_samples
+	var local_previous = hand_frame(actor.weapon_previous_angle, actor.weapon_previous_extension)
+	var local_current = hand_frame(actor.weapon_angle, actor.weapon_extension)
 	# Substep curved motion, then sweep small spheres along the visible shaft/head.
 	# Broad reach/cone tests cannot damage a target: an actual shape must touch it.
 	for step in range(subdivisions):
@@ -97,6 +113,10 @@ static func sweep(actor, previous: Transform3D, current: Transform3D, delta: flo
 			if first.is_empty() or hit.fraction < first.fraction:
 				first = hit
 				first["velocity"] = (end - start) / (delta / subdivisions)
+				# Locomotion and camera rotation alone cannot turn a held blade into a blender.
+				var local_a = local_previous.interpolate_with(local_current, float(step) / subdivisions) * sample.point
+				var local_b = local_previous.interpolate_with(local_current, float(step + 1) / subdivisions) * sample.point
+				first["speed"] = local_a.distance_to(local_b) / (delta / subdivisions)
 				first["edge"] = sample.edge
 		if not first.is_empty():
 			first["fraction"] = (step + first.fraction) / subdivisions

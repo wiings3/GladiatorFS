@@ -16,6 +16,8 @@ var objective: Label
 var timer: Label
 var health_bar: ProgressBar
 var health_text: Label
+var stamina_bar: ProgressBar
+var stamina_text: Label
 var weapon_text: Label
 var favor_text: Label
 var favor_bar: ProgressBar
@@ -92,9 +94,9 @@ func _build_menu() -> void:
 	var box = VBoxContainer.new()
 	box.add_theme_constant_override("separation", 14)
 	menu.add_child(box)
-	box.add_child(label("THE UNLUCKY FEW  /  PROTOTYPE 0.2", 15, GOLD))
+	box.add_child(label("BAD IDEAS. GOOD COMPANY.  /  0.3", 15, GOLD))
 	box.add_child(label("GLADIATOR\nFRIENDSLOP", 43))
-	box.add_child(label("A very bad day at the arena.", 18, MUTED))
+	box.add_child(label("Grab a sword. Make it everyone's problem.", 17, MUTED))
 	box.add_child(HSeparator.new())
 	box.add_child(label("YOUR GLADIATOR", 14, GOLD))
 	name_input = LineEdit.new()
@@ -119,7 +121,7 @@ func _build_menu() -> void:
 	status = label("LAN / direct IP  ·  UDP 27840\nSame PC? Open a second instance and join 127.0.0.1.", 14, MUTED)
 	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(status)
-	box.add_child(label("Hold LMB + drag mouse to swing\nHold RMB + aim mouse to block\nWASD move · F kick · E pick up · R throw", 16, CREAM))
+	box.add_child(label("Tap LMB to stab · Hold + drag to swing\nHold RMB + aim to block · F kick\nWASD move · E pick up · R throw", 16, CREAM))
 
 func _build_hud() -> void:
 	hud = Control.new()
@@ -127,7 +129,7 @@ func _build_hud() -> void:
 	hud.size = Vector2(1440, 900)
 	root.add_child(hud)
 	hud.hide()
-	for rect in [Rect2(18, 18, 342, 125), Rect2(385, 18, 670, 120), Rect2(1125, 18, 295, 75), Rect2(18, 728, 360, 112), Rect2(0, 844, 1440, 56)]:
+	for rect in [Rect2(18, 18, 342, 125), Rect2(385, 18, 670, 120), Rect2(1125, 18, 295, 75), Rect2(18, 692, 360, 148), Rect2(0, 844, 1440, 56)]:
 		var backing = ColorRect.new()
 		backing.color = Color(0.08, 0.10, 0.12, 0.73)
 		backing.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -153,12 +155,19 @@ func _build_hud() -> void:
 	favor_bar.add_theme_stylebox_override("fill", style(GOLD, Color.TRANSPARENT, 0, 0))
 	positioned(hud, favor_bar, Rect2(1160, 70, 245, 7))
 	health_text = label("GLADIATOR", 21)
-	positioned(hud, health_text, Rect2(34, 740, 430, 34))
+	positioned(hud, health_text, Rect2(34, 701, 430, 34))
 	health_bar = ProgressBar.new()
 	health_bar.show_percentage = false
 	health_bar.add_theme_stylebox_override("background", style(Color("343238"), Color.TRANSPARENT, 0, 0))
 	health_bar.add_theme_stylebox_override("fill", style(Color("c85c43"), Color.TRANSPARENT, 0, 0))
-	positioned(hud, health_bar, Rect2(35, 782, 305, 12))
+	positioned(hud, health_bar, Rect2(35, 743, 305, 10))
+	stamina_text = label("STAMINA", 13, Color("83d9be"))
+	positioned(hud, stamina_text, Rect2(35, 763, 305, 22))
+	stamina_bar = ProgressBar.new()
+	stamina_bar.show_percentage = false
+	stamina_bar.add_theme_stylebox_override("background", style(Color("343238"), Color.TRANSPARENT, 0, 0))
+	stamina_bar.add_theme_stylebox_override("fill", style(Color("83d9be"), Color.TRANSPARENT, 0, 0))
+	positioned(hud, stamina_bar, Rect2(35, 790, 305, 7))
 	weapon_text = label("SWORD  /  SHIELD", 17, GOLD)
 	positioned(hud, weapon_text, Rect2(35, 807, 490, 40))
 	var reticle = label("·", 32, CREAM)
@@ -176,7 +185,7 @@ func _build_hud() -> void:
 	feed = label("", 17, GOLD)
 	feed.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	positioned(hud, feed, Rect2(774, 790, 630, 40))
-	hint = label("WASD MOVE    SHIFT SPRINT    SPACE JUMP    CTRL DODGE    HOLD LMB + DRAG TO SWING    HOLD RMB TO AIM SHIELD", 14, CREAM)
+	hint = label("WASD MOVE    SHIFT SPRINT    SPACE JUMP    CTRL DODGE    TAP LMB STAB    HOLD LMB + DRAG SWING    RMB SHIELD", 14, CREAM)
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	positioned(hud, hint, Rect2(12, 850, 1416, 24))
 	var second = label("F KICK    E PICK UP / SWAP    Q DROP    R THROW    V THROW SHIELD    G DRAG DOWNED BODY    T TAUNT    ESC MENU", 13, MUTED)
@@ -257,6 +266,9 @@ func _process(delta: float) -> void:
 		timer.text = "ENTER  ·  OPEN THE GATES     |     1–4  ·  CHANGE EVENT"
 	health_text.text = me.title.to_upper() + ("  ·  %d" % int(me.health) if me.alive else "  ·  IN THE STANDS")
 	health_bar.value = me.health
+	stamina_bar.value = me.stamina
+	stamina_bar.modulate = Color("ff9568") if me.exhausted or me.guard_broken > 0 else Color.WHITE
+	stamina_text.text = "STAMINA  ·  GUARD BROKEN" if me.guard_broken > 0 else ("STAMINA  ·  CATCH YOUR BREATH" if me.exhausted else "STAMINA")
 	weapon_text.text = (me.held.to_upper() if me.held != "" else "BARE HANDS") + ("  /  SHIELD" if me.shield else "")
 	favor_text.text = "CROWD FAVOR   %d" % me.favor
 	favor_bar.value = mini(me.favor, 100)

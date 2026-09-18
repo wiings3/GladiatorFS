@@ -14,6 +14,10 @@ var initial_ids = []
 var remote_hand_seen = false
 var remote_guard_seen = false
 var replicated_hand_seen = false
+var stabbed = false
+var remote_stab_seen = false
+var replicated_stab_seen = false
+var replicated_stamina_seen = false
 
 func _initialize() -> void:
 	for arg in OS.get_cmdline_user_args():
@@ -63,6 +67,7 @@ func server_steps() -> void:
 		if actor.uid == 1: continue
 		remote_hand_seen = remote_hand_seen or (actor.input_attack and actor.weapon_angle.distance_to(Vector2(-0.70, 0.65)) > 0.25)
 		remote_guard_seen = remote_guard_seen or (actor.guard_raise > 0.65 and actor.guard_pitch > 0.3)
+		remote_stab_seen = remote_stab_seen or (actor.stab_time > 0 and actor.weapon_extension > 0.15)
 	if stage == 0 and game.human_actors().size() == 4:
 		verify(true, "Four separate processes joined one session")
 		initial_ids = game.actors.keys()
@@ -76,6 +81,7 @@ func server_steps() -> void:
 		verify(moved, "Remote movement is simulated on the host")
 		verify(remote_hand_seen, "Remote mouse gestures drive the host's physical hand")
 		verify(remote_guard_seen, "Raised shield aim reaches the host")
+		verify(remote_stab_seen, "Reliable client stab actions produce a physical thrust on the host")
 		game.begin_round()
 		stage = 2
 		stage_clock = 0
@@ -116,9 +122,14 @@ func client_steps(delta: float) -> void:
 		return
 	var me = game.actors.get(game.local_id())
 	if me == null: return
+	replicated_stab_seen = replicated_stab_seen or me.weapon_extension > 0.15
+	replicated_stamina_seen = replicated_stamina_seen or me.stamina < 95
 	if game.phase == "barracks":
 		game.submit_input.rpc_id(1, Vector2(0, -1), 0.0, true, false, 0.45, true, Vector2(sin(clock * 4), 0.02))
 		replicated_hand_seen = replicated_hand_seen or (me.guard_raise > 0.65 and me.weapon_angle.distance_to(Vector2(-0.70, 0.65)) > 0.25)
+		if not stabbed and me.guard_raise > 0.65:
+			game.submit_action.rpc_id(1, "stab")
+			stabbed = true
 	elif game.phase == "entry" and not threw:
 		game.submit_input.rpc_id(1, Vector2.ZERO, 0.0, false, false)
 		game.submit_action.rpc_id(1, "throw")
@@ -131,6 +142,8 @@ func client_steps(delta: float) -> void:
 				verify(seen.has("barracks") and seen.has("entry") and seen.has("fight"), "Barracks, gates, combat and betrayal all replicate")
 				verify(game.items.size() >= 10, "Physical equipment replicates")
 				verify(replicated_hand_seen, "Weapon arcs and aimed shield poses replicate back to the client")
+				verify(replicated_stab_seen, "The host's thrust extension replicates back to the client")
+				verify(replicated_stamina_seen, "Authoritative stamina depletion replicates back to the client")
 	if not me.alive and death_seen:
 		dead_clock += delta
 		if dead_clock < 0.1:
