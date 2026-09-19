@@ -25,13 +25,12 @@ Godot's [hosting documentation](https://docs.godotengine.org/en/4.5/tutorials/ne
 
 | Input | Action |
 | --- | --- |
-| WASD / mouse | Move / aim the character and camera |
+| WASD / mouse | Move / aim the camera and steer your held weapon |
 | C | Switch between first person and third person |
 | Scroll wheel, in third person | Up: zoom closer; down: zoom farther away |
 | Shift / Space | Sprint / jump |
 | Ctrl | Short dodge with a cooldown |
-| Left mouse, tap | Thrust/stab in your aim direction |
-| Left mouse, held + mouse drag | Steer the weapon: pull sideways to slash, pull down for an overhead |
+| Left mouse | Thrust/stab in your aim direction |
 | Right mouse, held + mouse aim | Raise and aim the physical shield, including up/down |
 | F | Kick; knock someone down or into a hazard |
 | E | Pick up or swap nearby equipment; eat bread |
@@ -46,21 +45,21 @@ Godot's [hosting documentation](https://docs.godotengine.org/en/4.5/tutorials/ne
 | Left / right arrows, when dead | Switch spectator target |
 | E / R, when dead | Cheer / throw a tomato toward the selected gladiator; six-second cooldown |
 
-The game starts in third person. Press **C** to switch to first person or back at any time while alive. The scroll wheel smoothly changes third-person distance, with limits and wall collision; returning from first person restores your chosen distance. First person shows your actual hands, weapon, shield, and legs; your own head and torso are hidden locally to keep the view clear. Knockdowns briefly use third person for readability, then restore your selected view; death uses the spectator camera. The selected perspective survives round resets.
+The game starts in first person. Press **C** to switch to third person or back at any time while alive. The scroll wheel smoothly changes third-person distance, with limits and wall collision; returning from first person restores your chosen distance. First person shows your actual hands, weapon, shield, and legs; your own head and torso are hidden locally to keep the view clear. Knockdowns briefly use third person for readability, then restore your selected view; death uses the spectator camera. The selected perspective survives round resets.
 
-The camera keeps following the mouse while you fight in either view. Hold left click and sweep through an opponent; horizontal drags level the swing, vertical drags bring it across the front of the body, and diagonal drags retain both axes. A quick click with little mouse movement produces a forward stab, with a short recovery before the next one. Releasing a drag or a long hold does not add a stab. You can hold right click at the same time to keep aiming your shield. **Esc → Swing Sensitivity** adjusts weapon response independently of camera sensitivity.
+Your held weapon always follows mouse movement; no attack button is needed to swing it. Horizontal movement levels the swing, vertical movement brings it across the front of the body, and diagonal movement retains both axes while the camera remains free. Left click performs one forward stab, whether clicked or held, with a short recovery before the next one. You can hold right click at the same time to keep aiming your shield. **Esc → Swing Sensitivity** adjusts weapon response independently of camera sensitivity.
 
 Damage requires a committed stroke or the forward part of a stab. Holding a blade against someone, walking into them, or repeatedly wiggling it a little cannot chip away their health. Each new stroke needs meaningful travel in one direction; a contact spends that stroke. Faster swings and heavier impacts hurt more, head hits hurt much more than torso hits, and legs take less damage. Actual swept weapon contact determines where you hit. Walls, shields, bodies, and loose equipment interrupt the arc.
 
 Swords and spears respond quickly, and ordinary equipment has only a small movement penalty. The hammer winds back for roughly 0.4 seconds, then swings/falls fast before recovering. It needs a fresh gesture for another swing. Its mass makes it much better at knocking people around, and carrying it slows movement. The spear's tip is its damaging part. These are fixed physical properties, with no random rolls or upgrade system.
 
-The **stamina bar** below health fuels sprinting, dodging, blocking, and kicks. Sprinting drains it while moving; keeping a shield raised drains it slowly, and blocking impacts spends larger chunks. An exhausted guard drops, leaving an opening. Stamina returns quickly after a short rest; sprinting, dodging, and blocking become available again once about a quarter of the bar has recovered. Weapon swings and stabs remain available while tired. NPCs obey the same stamina rules. They react to visible attacks after a delay, block briefly, and then leave an opening; merely holding left click does not trigger their shields.
+The **stamina bar** below health fuels sprinting, dodging, blocking, and kicks. Sprinting drains it while moving; keeping a shield raised drains it slowly, and blocking impacts spends larger chunks. An exhausted guard drops, leaving an opening. Stamina returns quickly after a short rest; sprinting, dodging, and blocking become available again once about a quarter of the bar has recovered. Weapon swings and stabs remain available while tired. NPCs obey the same stamina rules. They react to committed visible attacks after a delay, block briefly, and then leave an opening; an idle weapon pose does not trigger their shields.
 
 The menu does **not** pause a running arena. Heavy hits and kicks can disarm you. Retrieve the dropped equipment or improvise. Sparring in the barracks is nonlethal.
 
 ## Included in this prototype
 
-- **First- and third-person combat:** switchable perspective, third-person wheel zoom, free camera movement during attacks, tap-to-stab, mouse-driven weapon arcs, aimed physical shields, forward kicks, stamina, hit-location damage, knockdowns, health, death, and body dragging.
+- **First- and third-person combat:** first-person default, switchable perspective, third-person wheel zoom, always-on mouse-driven weapon arcs, click-to-stab, aimed physical shields, forward kicks, stamina, hit-location damage, knockdowns, health, death, and body dragging.
 - **Physical equipment:** sword, spear, hammer, shield, and throwable clay jars. Dropped and thrown equipment uses rigid-body physics and remains recoverable. No rarity, random rolls, upgrades, weapon levels, or special abilities. Reach, mass, inertia, and impact distinguish the weapon shapes and affect handling and movement.
 - **One arena and barracks:** a central trapdoor over spikes, a rotating beam, an animal gate, equipment on the floor, and between-round recovery.
 - **Four enemy archetypes:** sword/shield guard, spearman, heavy, and the champion. A charging boar can interrupt a long event.

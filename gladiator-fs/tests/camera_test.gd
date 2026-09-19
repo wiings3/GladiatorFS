@@ -45,7 +45,15 @@ func run() -> void:
 	game.camera_pitch = 0
 	await frames(3)
 	game.update_camera(1.0 / 60)
-	check(not game.first_person and game.camera.position.z > player.position.z + 4, "New sessions start in third person")
+	var eye = player.get_global_transform_interpolated().origin + Vector3(0.08, 1.85, 0.16)
+	check(game.first_person and game.camera.position.distance_to(eye) < 0.001, "New sessions start at eye level in first person")
+	check(not player.parts.head.visible and not player.parts.torso.visible and not player.nameplate.visible and other.parts.head.visible and other.parts.torso.visible, "Only the local player's head, torso and nameplate are hidden")
+	check(player.parts.right_arm.is_visible_in_tree() and player.held_model.is_visible_in_tree() and player.shield_model.is_visible_in_tree(), "First person keeps the real arms, weapon and shield visible")
+	wheel(MOUSE_BUTTON_WHEEL_UP)
+	check(is_equal_approx(game.third_person_zoom, 5.2), "Wheel input in first person preserves the saved third-person zoom")
+	key(KEY_C)
+	game.update_camera(1.0 / 60)
+	check(not game.first_person and game.camera.position.z > player.position.z + 4 and player.parts.head.visible, "C switches to third person and restores the full character")
 	wheel(MOUSE_BUTTON_WHEEL_UP)
 	var wanted = game.third_person_zoom
 	game.update_camera(1.0 / 60)
@@ -64,19 +72,16 @@ func run() -> void:
 	await frames(2)
 	key(KEY_C)
 	game.update_camera(1.0 / 60)
-	var eye = player.get_global_transform_interpolated().origin + Vector3(0.08, 1.85, 0.16)
 	check(game.first_person and game.camera.position.distance_to(eye) < 0.001, "C switches to an eye-level first-person camera")
-	check(not player.parts.head.visible and not player.parts.torso.visible and not player.nameplate.visible and other.parts.head.visible and other.parts.torso.visible, "Only the local player's head, torso and nameplate are hidden")
-	check(player.parts.right_arm.is_visible_in_tree() and player.held_model.is_visible_in_tree() and player.shield_model.is_visible_in_tree(), "First person keeps the real arms, weapon and shield visible")
 	key(KEY_C, true)
 	check(game.first_person, "Holding C does not repeatedly toggle the view")
 	wheel(MOUSE_BUTTON_WHEEL_UP)
 	check(game.third_person_zoom == game.CAMERA_ZOOM_MAX, "Wheel input in first person preserves the saved third-person zoom")
-	game.mouse_grip = true
+	var hand_before = game.mouse_weapon_target
 	game.steer_mouse(Vector2(40, -20))
 	game.update_camera(1.0 / 60)
 	var direction = -game.camera.basis.z
-	check(direction.x > 0 and direction.y > 0 and game.mouse_grip, "First-person aim follows mouse motion during a held swing")
+	check(direction.x > 0 and direction.y > 0 and game.mouse_weapon_target.distance_to(hand_before) > 0.2, "First-person mouse motion aims the camera and weapon without LMB")
 	key(KEY_C)
 	game.update_camera(1.0 / 60)
 	check(not game.first_person and player.parts.head.visible and player.parts.torso.visible and player.nameplate.visible and game.camera_distance == game.CAMERA_ZOOM_MAX, "Returning to third person restores the full character and previous zoom")

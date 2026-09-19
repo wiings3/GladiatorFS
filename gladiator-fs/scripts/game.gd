@@ -43,9 +43,6 @@ var input_clock = 0.0
 var crowd_clock = 0.0
 var sensitivity = 1.0
 var swing_sensitivity = 1.0
-var mouse_grip = false
-var mouse_press_time = 0
-var mouse_drag_distance = 0.0
 var mouse_weapon_target = Melee.REST
 var camera_yaw = 0.0
 var camera_pitch = -0.30
@@ -53,7 +50,7 @@ var camera_center = Vector3(0, 1.5, 25)
 var camera_initialized = false
 const CAMERA_ZOOM_MIN = 2.0
 const CAMERA_ZOOM_MAX = 9.0
-var first_person = false
+var first_person = true
 var third_person_zoom = 5.2
 var camera_distance = 5.2
 var camera_subject = null
@@ -205,14 +202,17 @@ func _show_game() -> void:
 	ui.hud.show()
 	ui.pause_panel.hide()
 	menu_open = false
-	mouse_grip = false
+	first_person = true
 	mouse_weapon_target = Melee.REST
 	camera_initialized = false
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 func toggle_menu() -> void:
 	menu_open = not menu_open
-	mouse_grip = false
+	if not menu_open and actors.has(local_id()):
+		# Resume from the visible hand pose instead of manufacturing a swing while
+		# the cursor was released for the menu.
+		mouse_weapon_target = actors[local_id()].weapon_angle
 	ui.pause_panel.visible = menu_open
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if menu_open else Input.MOUSE_MODE_CAPTURED
 
@@ -789,23 +789,24 @@ func collect_input(delta: float) -> void:
 	var move = Vector2.ZERO
 	var block = false
 	var sprint = false
-	var grip = false
+	var steer_weapon = false
 	if not menu_open:
 		var raw = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 		var world = Vector3(raw.x, 0, raw.y).rotated(Vector3.UP, camera_yaw)
 		move = Vector2(world.x, world.z)
 		block = Input.is_action_pressed("guard")
 		sprint = Input.is_action_pressed("sprint")
-		grip = mouse_grip
+		# A held weapon is always steered by mouse motion. LMB is reserved for stabs.
+		steer_weapon = true
 	if authority:
-		apply_input(local_id(), move, camera_yaw, block, sprint, camera_pitch, grip, mouse_weapon_target)
+		apply_input(local_id(), move, camera_yaw, block, sprint, camera_pitch, steer_weapon, mouse_weapon_target)
 	else:
 		input_clock += delta
 		if input_clock >= 1.0 / 30.0:
 			input_clock = 0
-			submit_input.rpc_id(1, move, camera_yaw, block, sprint, camera_pitch, grip, mouse_weapon_target)
+			submit_input.rpc_id(1, move, camera_yaw, block, sprint, camera_pitch, steer_weapon, mouse_weapon_target)
 
-func apply_input(id: int, move: Vector2, yaw: float, block: bool, sprint: bool, pitch: float = 0.0, grip: bool = false, hand: Vector2 = Melee.REST) -> void:
+func apply_input(id: int, move: Vector2, yaw: float, block: bool, sprint: bool, pitch: float = 0.0, steer_weapon: bool = false, hand: Vector2 = Melee.REST) -> void:
 	if not actors.has(id) or not move.is_finite() or not is_finite(yaw) or not is_finite(pitch) or not hand.is_finite():
 		return
 	var actor = actors[id]
@@ -814,13 +815,13 @@ func apply_input(id: int, move: Vector2, yaw: float, block: bool, sprint: bool, 
 	actor.input_pitch = clampf(pitch, -1.0, 0.9)
 	actor.input_block = block
 	actor.input_sprint = sprint
-	actor.set_weapon_input(grip, hand)
+	actor.set_weapon_input(steer_weapon, hand)
 	actor.input_age = 0
 
 @rpc("any_peer", "call_remote", "unreliable_ordered", 1)
-func submit_input(move: Vector2, yaw: float, block: bool, sprint: bool, pitch: float = 0.0, grip: bool = false, hand: Vector2 = Melee.REST) -> void:
+func submit_input(move: Vector2, yaw: float, block: bool, sprint: bool, pitch: float = 0.0, steer_weapon: bool = false, hand: Vector2 = Melee.REST) -> void:
 	if authority:
-		apply_input(multiplayer.get_remote_sender_id(), move, yaw, block, sprint, pitch, grip, hand)
+		apply_input(multiplayer.get_remote_sender_id(), move, yaw, block, sprint, pitch, steer_weapon, hand)
 
 @rpc("any_peer", "call_remote", "reliable", 0)
 func submit_action(action: String, requested_target: int = 0) -> void:
@@ -886,29 +887,24 @@ func zoom_camera(steps: float) -> void:
 	third_person_zoom = clampf(third_person_zoom + steps * 0.65, CAMERA_ZOOM_MIN, CAMERA_ZOOM_MAX)
 
 func weapon_button(pressed: bool) -> String:
-	var tap = not pressed and mouse_grip and Time.get_ticks_msec() - mouse_press_time <= 220 and mouse_drag_distance < 12.0
-	mouse_grip = pressed
-	if pressed:
-		mouse_press_time = Time.get_ticks_msec()
-		mouse_drag_distance = 0
-		if actors.has(local_id()): mouse_weapon_target = actors[local_id()].weapon_angle
-	return "stab" if tap else ""
+	# Pressing LMB performs exactly one stab. Holding or releasing it has no
+	# bearing on mouse-driven swings.
+	return "stab" if pressed else ""
 
 func steer_mouse(motion: Vector2) -> void:
-	# Looking and turning never stop, including throughout a held weapon swing.
+	# The same motion freely turns the camera and steers the held weapon. Damage
+	# still requires a committed stroke, so ordinary aim corrections cannot chip.
 	camera_yaw -= motion.x * 0.003 * sensitivity
 	camera_pitch = clampf(camera_pitch - motion.y * 0.003 * sensitivity, -1.0, 0.9)
-	if mouse_grip:
-		mouse_drag_distance += motion.length()
-		var drag = motion * swing_sensitivity
-		mouse_weapon_target -= drag * 0.010
-		# A mostly vertical pull naturally crosses the front of the body; a lateral
-		# pull levels the hand. Diagonal drags keep both axes under direct control.
-		if absf(drag.y) > absf(drag.x) * 1.5:
-			mouse_weapon_target.x = move_toward(mouse_weapon_target.x, 0.24, absf(drag.y) * 0.010)
-		elif absf(drag.x) > absf(drag.y) * 1.5:
-			mouse_weapon_target.y = move_toward(mouse_weapon_target.y, 0.02, absf(drag.x) * 0.009)
-		mouse_weapon_target = Melee.angle_limit(mouse_weapon_target)
+	var drag = motion * swing_sensitivity
+	mouse_weapon_target -= drag * 0.010
+	# A mostly vertical pull naturally crosses the front of the body; a lateral
+	# pull levels the hand. Diagonal drags keep both axes under direct control.
+	if absf(drag.y) > absf(drag.x) * 1.5:
+		mouse_weapon_target.x = move_toward(mouse_weapon_target.x, 0.24, absf(drag.y) * 0.010)
+	elif absf(drag.x) > absf(drag.y) * 1.5:
+		mouse_weapon_target.y = move_toward(mouse_weapon_target.y, 0.02, absf(drag.x) * 0.009)
+	mouse_weapon_target = Melee.angle_limit(mouse_weapon_target)
 
 func cycle_spectator(direction: int) -> void:
 	var list = []

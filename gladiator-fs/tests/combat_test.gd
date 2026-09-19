@@ -130,7 +130,7 @@ func run() -> void:
 	await prepare()
 	game.apply_input(1, Vector2.ZERO, 0, false, false, 0, true, Vector2(-1, 0.02))
 	await swing(Vector2(-1, 0.02), Vector2(-1, 0.02))
-	check(target.health == 100, "Holding left click without moving cannot deal damage")
+	check(target.health == 100, "Holding the weapon still cannot deal damage")
 	await prepare()
 	target.position.x = -3
 	await swing(Vector2(-1, 0.02), Vector2(1, 0.02))
@@ -166,15 +166,16 @@ func run() -> void:
 			await physics_frame
 		distances.append(player.position.x + 10)
 	check(distances[0] > distances[1] + 0.7, "The heavier load actually travels less distance over the same second")
-	game.mouse_grip = true
 	game.mouse_weapon_target = Vector2.ZERO
 	var yaw = game.camera_yaw
 	game.steer_mouse(Vector2(-80, 0))
-	check(game.mouse_weapon_target.x > 0.7 and game.camera_yaw > yaw, "Left drag swings the hand AND turns the camera")
+	check(game.mouse_weapon_target.x > 0.7 and game.camera_yaw > yaw, "Mouse motion swings the hand AND turns the camera without an attack button")
+	player.input_attack = false
+	game.collect_input(0.0)
+	check(player.input_attack, "Normal gameplay continuously sends mouse weapon control without LMB")
 	game.mouse_weapon_target = Vector2(0.24, 0.8)
 	game.steer_mouse(Vector2(0, 80))
 	check(game.mouse_weapon_target.y < 0.01, "Downward mouse movement lowers the weapon through an overhead arc")
-	game.mouse_grip = false
 	var pitch = game.camera_pitch
 	game.steer_mouse(Vector2(0, -50))
 	check(game.camera_pitch > pitch, "Mouse look can aim a raised shield upward")
@@ -195,8 +196,8 @@ func tick(aim: Vector2, grip: bool = true, move: Vector2 = Vector2.ZERO, sprint:
 	await physics_frame
 
 func thrust() -> void:
-	game.weapon_button(true)
-	game.act(1, game.weapon_button(false))
+	game.act(1, game.weapon_button(true))
+	game.weapon_button(false)
 	for i in range(32): await tick(Melee.REST, false)
 
 func new_combat_checks() -> void:
@@ -232,12 +233,10 @@ func new_combat_checks() -> void:
 	target.position.x = 3
 	await thrust()
 	check(target.health == 100, "A stab misses a target outside its actual path")
-	game.weapon_button(true)
-	game.mouse_press_time -= 300
-	check(game.weapon_button(false) == "", "Releasing a long hold does not add an unwanted stab")
-	game.weapon_button(true)
+	check(game.weapon_button(true) == "stab" and game.weapon_button(false) == "", "LMB press requests one stab and release requests nothing")
+	var hand_before = game.mouse_weapon_target
 	game.steer_mouse(Vector2(35, 0))
-	check(game.weapon_button(false) == "", "Releasing a quick drag does not also stab")
+	check(game.mouse_weapon_target.distance_to(hand_before) > 0.2, "Mouse motion keeps steering the weapon without LMB")
 	await prepare("hammer")
 	target.position.x = 5
 	var windup_speed = 0.0
@@ -265,7 +264,7 @@ func new_combat_checks() -> void:
 	for i in range(45):
 		target.drive_ai_defense(player, 1.0 / 60.0)
 		await tick(Melee.REST)
-	check(target.guard_raise < 0.1, "NPC defense does not react to merely holding left click")
+	check(target.guard_raise < 0.1, "NPC defense does not react to an idle controlled weapon")
 	await prepare("hammer", true)
 	var instant_block = false
 	var delayed_block = false

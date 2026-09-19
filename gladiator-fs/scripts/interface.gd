@@ -121,7 +121,7 @@ func _build_menu() -> void:
 	status = label("LAN / direct IP  ·  UDP 27840\nSame PC? Open a second instance and join 127.0.0.1.", 14, MUTED)
 	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(status)
-	box.add_child(label("Tap LMB to stab · Hold + drag to swing\nHold RMB + aim to block · F kick\nWASD move · C view · Scroll wheel zoom", 16, CREAM))
+	box.add_child(label("Move mouse to swing · LMB to stab\nHold RMB + aim to block · F kick\nWASD move · C view · Scroll wheel zoom", 16, CREAM))
 
 func _build_hud() -> void:
 	hud = Control.new()

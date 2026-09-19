@@ -159,7 +159,7 @@ func request_action(action: String) -> void:
 				weapon_hit_cooldowns.clear()
 				swing_spent = true
 		"attack":
-			# Human melee comes only from held mouse input and swept weapon contact.
+			# Human melee comes only from continuous mouse steering and swept contact.
 			if archetype != "boar":
 				return
 			if attack_time <= 0 and kick_time <= 0:
@@ -312,17 +312,17 @@ func absorb_block(speed: float, mass: float) -> void:
 	consume_stamina(clampf(10.0 + speed * mass * 0.38, 12, 45))
 	if exhausted: break_guard()
 
-func set_weapon_input(grip: bool, aim: Vector2) -> void:
+func set_weapon_input(active: bool, aim: Vector2) -> void:
 	var bounded = Melee.angle_limit(aim)
 	var previous = weapon_target if input_attack else weapon_angle
-	if grip and not input_attack:
+	if active and not input_attack:
 		swing_origin = weapon_angle
 		swing_start_angle = weapon_angle
 		swing_direction = Vector2.ZERO
 		swing_spent = false
 		weapon_travel = 0
 	var motion = bounded - previous
-	if grip and motion.length() > 0.004:
+	if active and motion.length() > 0.004:
 		if swing_direction != Vector2.ZERO and motion.normalized().dot(swing_direction) < -0.3:
 			# A reversal starts a new stroke; little wiggles never add up to a full swing.
 			swing_origin = previous
@@ -333,7 +333,7 @@ func set_weapon_input(grip: bool, aim: Vector2) -> void:
 			swing_direction = motion.normalized()
 		weapon_travel = bounded.distance_to(swing_origin)
 		weapon_motion_age = 0
-	input_attack = grip
+	input_attack = active
 	weapon_target = bounded
 
 func stab_windup() -> float:
@@ -471,7 +471,7 @@ func drive_ai_defense(target, delta: float) -> void:
 		bot_threat_time += delta
 	else:
 		bot_threat_time = 0
-	# React to visible motion, then leave a generous opening. Holding LMB is not a threat.
+	# React to visible motion, then leave a generous opening. An idle pose is not a threat.
 	var reaction = 0.20 + posmod(uid, 3) * 0.06
 	if bot_threat_time >= reaction and bot_guard_cooldown <= 0 and stamina >= 20:
 		bot_guard_time = 0.38
