@@ -10,6 +10,7 @@ static func properties(kind: String) -> Dictionary:
 		"sword": return {"mass": 1.3, "length": 1.36, "inertia": 0.65, "edge": 0.22, "radius": 0.095}
 		"spear": return {"mass": 2.4, "length": 2.48, "inertia": 2.80, "edge": 1.96, "radius": 0.075}
 		"hammer": return {"mass": 6.5, "length": 1.22, "inertia": 5.20, "edge": 0.80, "radius": 0.095}
+		"helmet": return {"mass": 1.6, "length": 0.48, "inertia": 0.75, "edge": 0.0, "radius": 0.22}
 		"shield": return {"mass": 3.4, "length": 0.65, "inertia": 1.8, "edge": 0.0, "radius": 0.26}
 		"jar": return {"mass": 2.2, "length": 0.35, "inertia": 0.9, "edge": 0.0, "radius": 0.25}
 		"trash", "food": return {"mass": 0.3, "length": 0.25, "inertia": 0.12, "edge": 0.0, "radius": 0.16}
@@ -22,6 +23,40 @@ static func movement_factor(weapon: String, shield: bool) -> float:
 	var weight = burden(weapon, shield)
 	# Ordinary kit stays nimble; most of the burden comes from genuinely heavy loads.
 	return 1.0 / (1.0 + weight * 0.008 + maxf(0, weight - 4.0) * 0.048)
+
+static func swing_stamina(kind: String) -> float:
+	match kind:
+		"hammer": return 24.0
+		"spear": return 14.0
+		"sword": return 11.0
+		"helmet": return 8.0
+		_: return 6.0
+
+static func stab_stamina(kind: String) -> float:
+	match kind:
+		"hammer": return 18.0
+		"spear": return 10.0
+		"sword": return 8.0
+		"helmet": return 7.0
+		_: return 5.0
+
+static func swing_recovery(kind: String) -> float:
+	match kind:
+		"hammer": return 0.52
+		"spear": return 0.28
+		_: return 0.18
+
+static func rearm_distance(kind: String) -> float:
+	match kind:
+		"hammer": return 0.48
+		"spear": return 0.38
+		_: return 0.30
+
+static func recoil_distance(kind: String) -> float:
+	match kind:
+		"hammer": return 0.34
+		"spear": return 0.43
+		_: return 0.48
 
 static func angle_limit(value: Vector2) -> Vector2:
 	return value.clamp(MIN_ANGLE, MAX_ANGLE)
@@ -52,12 +87,38 @@ static func integrate(angles: Vector2, speed: Vector2, target: Vector2, kind: St
 	return [next, speed]
 
 static func impact_damage(kind: String, speed: float, height: float) -> float:
-	# Shape, mass and speed determine impact. No equipment rolls or progression.
-	var mass = maxf(0.45, properties(kind).mass)
-	var impact = clampf(5.0 + pow(minf(speed, 16.0), 1.35) * sqrt(mass) * 1.05, 0, 65)
-	if kind == "": impact *= 0.4
-	var location = 2.2 if height >= 1.60 else (0.5 if height < 0.82 else 1.0)
-	return impact * location
+	# Health damage reaches a readable ceiling. Extra speed remains valuable
+	# through knockback, disarms and spectacle instead of turning every flick
+	# into a one-shot.
+	var low = 4.0
+	var high = 12.0
+	var full_speed = 10.0
+	match kind:
+		"sword": low = 10.0; high = 30.0; full_speed = 11.0
+		"spear": low = 9.0; high = 26.0; full_speed = 10.5
+		"hammer": low = 18.0; high = 45.0; full_speed = 13.0
+		"helmet": low = 5.0; high = 14.0; full_speed = 10.0
+	var t = clampf((speed - 2.8) / (full_speed - 2.8), 0.0, 1.0)
+	t = t * t * (3.0 - 2.0 * t)
+	var location = 1.8 if height >= 1.60 else (0.55 if height < 0.82 else 1.0)
+	return lerpf(low, high, t) * location
+
+static func stab_damage(kind: String, speed: float, height: float) -> float:
+	var high = 16.0
+	match kind:
+		"sword": high = 22.0
+		"spear": high = 28.0
+		"hammer": high = 24.0
+		"helmet": high = 11.0
+	var t = clampf((speed - 2.5) / 8.0, 0.0, 1.0)
+	var location = 1.6 if height >= 1.60 else (0.65 if height < 0.82 else 1.0)
+	return lerpf(high * 0.55, high, t) * location
+
+static func impact_force(kind: String, speed: float) -> float:
+	# Force keeps climbing after damage has capped. Very fast or heavy blows are
+	# therefore funny and disruptive without deleting a full health bar.
+	var mass_factor = sqrt(maxf(0.45, properties(kind).mass))
+	return clampf(1.5 + maxf(0.0, speed - 2.5) * mass_factor * 0.62, 2.0, 18.0)
 
 static func samples(kind: String) -> Array:
 	var p = properties(kind)

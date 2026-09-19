@@ -121,7 +121,7 @@ func _build_menu() -> void:
 	status = label("LAN / direct IP  ·  UDP 27840\nSame PC? Open a second instance and join 127.0.0.1.", 14, MUTED)
 	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(status)
-	box.add_child(label("Move mouse to swing · LMB to stab\nHold RMB + aim to block · F kick\nWASD move · C view · Scroll wheel zoom", 16, CREAM))
+	box.add_child(label("Move mouse to swing · LMB to stab\nAttacks use stamina · RMB aim/block\nF kick · WASD move · C view · Wheel zoom", 16, CREAM))
 
 func _build_hud() -> void:
 	hud = Control.new()
@@ -270,7 +270,7 @@ func _process(delta: float) -> void:
 	stamina_bar.value = me.stamina
 	stamina_bar.modulate = Color("ff9568") if me.exhausted or me.guard_broken > 0 else Color.WHITE
 	stamina_text.text = "STAMINA  ·  GUARD BROKEN" if me.guard_broken > 0 else ("STAMINA  ·  CATCH YOUR BREATH" if me.exhausted else "STAMINA")
-	weapon_text.text = (me.held.to_upper() if me.held != "" else "BARE HANDS") + ("  /  SHIELD" if me.shield else "")
+	weapon_text.text = (me.held.to_upper() if me.held != "" else "BARE HANDS") + ("  /  SHIELD" if me.shield else "") + ("  /  HELMET GONE" if not me.helmet_on else "")
 	favor_text.text = "CROWD FAVOR   %d" % me.favor
 	favor_bar.value = mini(me.favor, 100)
 	if me.health < previous_health:

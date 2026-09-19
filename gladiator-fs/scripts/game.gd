@@ -321,6 +321,7 @@ func enter_barracks() -> void:
 		actor.alive = true
 		actor.held = "sword"
 		actor.shield = true
+		actor.helmet_on = true
 		actor.knockdown = 0
 		actor.attack_time = 0
 		actor.grabber = 0
@@ -575,6 +576,9 @@ func pickup(actor) -> void:
 	var kind = item.kind
 	if kind == "food":
 		actor.health = minf(100, actor.health + 30)
+	elif kind == "helmet" and not actor.helmet_on:
+		actor.helmet_on = true
+		event("pickup", actor.position, actor.title + " jams the helmet back on.")
 	elif kind == "shield":
 		if actor.shield:
 			return
@@ -668,18 +672,22 @@ func resolve_weapon_contact(attacker, hit: Dictionary) -> void:
 			guard.impulse += attacker.forward() * minf(4.0, Melee.properties(attacker.held).mass * speed * 0.12)
 			event("block", hit.point, "")
 			attacker.weapon_contact_cooldown = 0.20
-			attacker.swing_spent = true
+			attacker.register_swing_contact(1.35)
 		return
 	if collider is CharacterBody3D:
 		if not has_intent or not hit.edge or attacker.weapon_hit_cooldowns.has(collider.uid):
 			return
 		var direction = hit.velocity.normalized()
-		var force = clampf(Melee.properties(attacker.held).mass * speed * 0.24, 2, 13)
+		var stabbing = attacker.stab_time > 0
+		var force = Melee.impact_force(attacker.held, speed) * (0.48 if stabbing else 1.0)
 		var height = collider.to_local(hit.point).y
-		var damage = Melee.impact_damage(attacker.held, speed, height)
+		var damage = Melee.stab_damage(attacker.held, speed, height) if stabbing else Melee.impact_damage(attacker.held, speed, height)
+		if height >= 1.60:
+			damage = collider.protect_head_hit(damage, direction)
 		attacker.weapon_hit_cooldowns[collider.uid] = 0.5
 		attacker.weapon_travel = 0
-		attacker.swing_spent = true
+		if not stabbing:
+			attacker.register_swing_contact(1.0)
 		attacker.weapon_contacts += 1
 		var health_before = collider.health
 		collider.take_hit(damage, direction * force + Vector3.UP * force * 0.22, attacker.uid, "swing")
@@ -689,10 +697,11 @@ func resolve_weapon_contact(attacker, hit: Dictionary) -> void:
 	elif collider is RigidBody3D:
 		if speed > 1 and has_intent:
 			collider.apply_impulse(hit.velocity.normalized() * minf(9, speed * Melee.properties(attacker.held).mass * 0.35), hit.point - collider.global_position)
+			attacker.register_swing_contact(0.85)
 	elif speed > 1.5 and attacker.weapon_contact_cooldown <= 0:
 		event("block", hit.point, "")
 		attacker.weapon_contact_cooldown = 0.20
-		if has_intent: attacker.swing_spent = true
+		if has_intent: attacker.register_swing_contact(1.15)
 
 func sweep_projectile(item, from: Vector3, to: Vector3) -> void:
 	if item.flight_time <= 0 or from.distance_to(to) < 0.001:

@@ -97,6 +97,12 @@ static func weapon(kind: String) -> Node3D:
 			box(root, Vector3(0.12, 0.12, 1.25), Vector3(0, 0, -0.32), WOOD)
 			box(root, Vector3(0.88, 0.42, 0.46), Vector3(0, 0, -1.0), IRON)
 			box(root, Vector3(0.20, 0.45, 0.48), Vector3(0, 0, -1.0), BRONZE)
+		"helmet":
+			var cap = cylinder(root, 0.39, 0.45, Vector3.ZERO, BRONZE, 0.29)
+			cap.scale.z = 0.85
+			box(root, Vector3(0.53, 0.09, 0.10), Vector3(0, -0.13, -0.34), INK)
+			box(root, Vector3(0.09, 0.27, 0.10), Vector3(0, -0.20, -0.37), BRONZE)
+			box(root, Vector3(0.17, 0.38, 0.55), Vector3(0, 0.30, 0), RED)
 		"shield":
 			var rim = cylinder(root, 0.62, 0.13, Vector3.ZERO, BRONZE)
 			rim.rotation.x = PI / 2
@@ -149,11 +155,14 @@ static func gladiator(root: Node3D, color: Color, beast: bool = false) -> Dictio
 	head.name = "Head"
 	root.add_child(head)
 	box(head, Vector3(0.45, 0.43, 0.40), Vector3(0, 1.74, -0.02), skin)
-	var helmet = cylinder(head, 0.39, 0.45, Vector3(0, 1.92, 0.015), BRONZE, 0.29)
+	var helmet_root = Node3D.new()
+	helmet_root.name = "Helmet"
+	head.add_child(helmet_root)
+	var helmet = cylinder(helmet_root, 0.39, 0.45, Vector3(0, 1.92, 0.015), BRONZE, 0.29)
 	helmet.scale.z = 0.85
-	box(head, Vector3(0.53, 0.09, 0.10), Vector3(0, 1.79, -0.33), INK)
-	box(head, Vector3(0.09, 0.27, 0.10), Vector3(0, 1.72, -0.36), BRONZE)
-	box(head, Vector3(0.17, 0.38, 0.55), Vector3(0, 2.22, 0.01), color)
+	box(helmet_root, Vector3(0.53, 0.09, 0.10), Vector3(0, 1.79, -0.33), INK)
+	box(helmet_root, Vector3(0.09, 0.27, 0.10), Vector3(0, 1.72, -0.36), BRONZE)
+	box(helmet_root, Vector3(0.17, 0.38, 0.55), Vector3(0, 2.22, 0.01), color)
 	var hands = []
 	for side in [-1, 1]:
 		var arm = Node3D.new()
@@ -166,4 +175,4 @@ static func gladiator(root: Node3D, color: Color, beast: bool = false) -> Dictio
 		hand.position = Vector3(0, -0.32, -0.10)
 		arm.add_child(hand)
 		hands.append(hand)
-	return {"legs": legs, "head": head, "torso": chest, "left": hands[0], "right": hands[1], "left_arm": hands[0].get_parent(), "right_arm": hands[1].get_parent()}
+	return {"legs": legs, "head": head, "helmet": helmet_root, "torso": chest, "left": hands[0], "right": hands[1], "left_arm": hands[0].get_parent(), "right_arm": hands[1].get_parent()}

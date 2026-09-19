@@ -18,6 +18,7 @@ var stabbed = false
 var remote_stab_seen = false
 var replicated_stab_seen = false
 var replicated_stamina_seen = false
+var replicated_helmet_loss_seen = false
 
 func _initialize() -> void:
 	for arg in OS.get_cmdline_user_args():
@@ -91,6 +92,8 @@ func server_steps() -> void:
 			if actor.uid != 1 and actor.held != "": dropped = false
 		verify(dropped, "Reliable client throw actions reach the host")
 		game.start_fight()
+		for actor in game.human_actors():
+			if actor.uid != 1: actor.helmet_on = false
 		stage = 3
 		stage_clock = 0
 	elif stage == 3 and stage_clock > 1:
@@ -124,6 +127,7 @@ func client_steps(delta: float) -> void:
 	if me == null: return
 	replicated_stab_seen = replicated_stab_seen or me.weapon_extension > 0.15
 	replicated_stamina_seen = replicated_stamina_seen or me.stamina < 95
+	replicated_helmet_loss_seen = replicated_helmet_loss_seen or game.human_actors().any(func(actor): return not actor.helmet_on)
 	if game.phase == "barracks":
 		game.submit_input.rpc_id(1, Vector2(0, -1), 0.0, true, false, 0.45, true, Vector2(sin(clock * 4), 0.02))
 		replicated_hand_seen = replicated_hand_seen or (me.guard_raise > 0.65 and me.weapon_angle.distance_to(Vector2(-0.70, 0.65)) > 0.25)
@@ -144,6 +148,7 @@ func client_steps(delta: float) -> void:
 				verify(replicated_hand_seen, "Weapon arcs and aimed shield poses replicate back to the client")
 				verify(replicated_stab_seen, "The host's thrust extension replicates back to the client")
 				verify(replicated_stamina_seen, "Authoritative stamina depletion replicates back to the client")
+				verify(replicated_helmet_loss_seen, "Popped helmet state replicates back to clients")
 	if not me.alive and death_seen:
 		dead_clock += delta
 		if dead_clock < 0.1:

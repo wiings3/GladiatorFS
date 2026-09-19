@@ -32,7 +32,11 @@ func reset_actor(actor, pos: Vector3, yaw: float) -> void:
 	actor.knockdown = 0
 	actor.invulnerable = 0
 	actor.health = 100
+	actor.stamina = 100
+	actor.exhausted = false
+	actor.stamina_delay = 0
 	actor.alive = true
+	actor.helmet_on = true
 	actor.blocking = false
 	actor.input_block = false
 	actor.attack_time = 0

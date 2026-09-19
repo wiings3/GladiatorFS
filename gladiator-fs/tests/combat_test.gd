@@ -28,6 +28,7 @@ func prepare(kind: String = "sword", guard: bool = false, target_yaw: float = PI
 		actor.stamina_delay = 0
 		actor.exhausted = false
 		actor.guard_broken = 0
+		actor.helmet_on = true
 		actor.kick_time = 0
 		actor.dodge_time = 0
 		actor.dodge_cooldown = 0
@@ -70,8 +71,8 @@ func prepare(kind: String = "sword", guard: bool = false, target_yaw: float = PI
 	player.weapon_travel = 0
 	player.weapon_contacts = 0
 
-func swing(from: Vector2, to: Vector2, steps: int = 22) -> void:
-	for i in range(steps + 20):
+func swing(from: Vector2, to: Vector2, steps: int = 22, settle_frames: int = 20) -> void:
+	for i in range(steps + settle_frames):
 		var aim = from.lerp(to, minf(float(i + 1) / steps, 1.0))
 		game.apply_input(1, Vector2.ZERO, 0, false, false, 0, true, aim)
 		target.input_age = 0
@@ -202,15 +203,19 @@ func thrust() -> void:
 
 func new_combat_checks() -> void:
 	await prepare("sword", false, PI, Vector2(0.24, 0))
+	var idle_stamina = player.stamina
 	for i in range(150): await tick(Vector2(0.24 + sin(i * 1.4) * 0.07, 0))
 	check(target.health == 100 and player.weapon_contacts == 0, "Small repeated wiggles against a body never accumulate into damage")
+	check(is_equal_approx(player.stamina, idle_stamina), "Ordinary aiming and small wiggles spend no swing stamina")
 	await prepare()
 	await swing(Vector2(-1, 0.02), Vector2(1, 0.02), 28)
 	var slower_damage = 100 - target.health
 	await prepare()
 	await swing(Vector2(-1, 0.02), Vector2(1, 0.02), 10)
 	check(100 - target.health > slower_damage + 4, "A faster real sword contact deals more damage")
+	check(absf(player.stamina - (100.0 - Melee.swing_stamina("sword"))) < 0.1, "A committed sword swing spends stamina exactly once")
 	await prepare("sword", false, PI, Vector2(-1, 0.32))
+	target.helmet_on = false
 	await swing(Vector2(-1, 0.32), Vector2(1, 0.32), 16)
 	var head_damage = 100 - target.health
 	await prepare("sword", false, PI, Vector2(-1, -0.45))
@@ -218,13 +223,45 @@ func new_combat_checks() -> void:
 	var leg_damage = 100 - target.health
 	check(head_damage > leg_damage * 2 and leg_damage > 0, "Physical head contact hurts much more than the same swing at the legs")
 	await prepare("sword", false, PI, Vector2(-1, 0.32))
+	await swing(Vector2(-1, 0.32), Vector2(1, 0.32), 10)
+	var helmet_drops = game.items.values().filter(func(item): return item.kind == "helmet")
+	var loose_helmet = helmet_drops[0] if not helmet_drops.is_empty() else null
+	check(not target.helmet_on and 100 - target.health <= 12.1 and is_instance_valid(loose_helmet), "A major head hit is softened once and launches the helmet into the arena")
+	if is_instance_valid(loose_helmet):
+		loose_helmet.position = target.position
+		loose_helmet.flight_time = 0
+		game.pickup(target)
+	check(target.helmet_on, "A gladiator can retrieve and jam a popped helmet back on")
+	await prepare("sword", false, PI, Vector2(-1, 0.32))
 	target.invulnerable = 2.0
 	await swing(Vector2(-1, 0.32), Vector2(1, 0.32), 16)
-	check(target.health == 100 and player.favor == 0, "A dodged head contact cannot award damage or head-hit favor")
+	check(target.health == 100 and target.helmet_on and player.favor == 0, "A dodged head contact cannot pop a helmet or award damage and favor")
 	check(Melee.impact_damage("hammer", 8, 1.2) > Melee.impact_damage("sword", 8, 1.2), "More weapon mass produces a harder impact at the same speed")
+	check(is_equal_approx(Melee.impact_damage("sword", 14, 1.2), Melee.impact_damage("sword", 30, 1.2)) and Melee.impact_force("sword", 30) > Melee.impact_force("sword", 14), "Excess swing speed becomes knockback after health damage reaches its cap")
+	await prepare()
+	target.position.x = 5
+	player.swing_direction = Vector2.RIGHT
+	player.swing_armed = true
+	player.weapon_target = Vector2(1.0, 0.02)
+	player.weapon_angle = Vector2(0.8, 0.02)
+	player.register_swing_contact(1.0)
+	check(player.swing_spent and player.swing_recovery > 0 and player.weapon_recoil.x < -0.3, "Contact produces a strong recoil and weapon-specific recovery")
+	player.set_weapon_input(true, Vector2(0.6, 0.02))
+	player.set_weapon_input(true, Vector2(0.1, 0.02))
+	check(player.swing_spent and player.swing_rearm_started, "An immediate reverse gesture cannot skip contact recovery")
+	player.swing_recovery = 0
+	player.set_weapon_input(true, Vector2(0.0, 0.02))
+	check(not player.swing_spent and not player.swing_armed, "Returning the weapon through a ready arc re-arms it after recovery")
+	check(Melee.swing_recovery("hammer") > Melee.swing_recovery("sword") and Melee.swing_stamina("hammer") > Melee.swing_stamina("sword"), "Heavy weapons take longer and cost more stamina to swing")
+	await prepare()
+	player.stamina = 5
+	await swing(Vector2(-1, 0.02), Vector2(1, 0.02), 10)
+	check(target.health == 100 and player.exhausted and not player.swing_armed, "A gladiator without enough stamina cannot turn a gesture into a damaging swing")
 	await prepare("sword", false, PI, Melee.REST)
+	var stab_stamina = player.stamina
 	await thrust()
 	check(target.health < 100 and player.weapon_contacts == 1, "A single tap produces one physical forward stab")
+	check(absf(player.stamina - (stab_stamina - Melee.stab_stamina("sword"))) < 0.1, "A stab spends its smaller attack stamina cost once")
 	check(player.stab_time <= 0, "The stab retracts and completes its recovery")
 	await prepare("sword", true, PI, Melee.REST)
 	await thrust()

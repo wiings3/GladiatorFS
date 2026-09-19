@@ -19,6 +19,7 @@ var favor = 0
 var wins = 0
 var held = "sword"
 var shield = true
+var helmet_on = true
 var input_move = Vector2.ZERO
 var input_yaw = 0.0
 var input_pitch = 0.0
@@ -41,6 +42,11 @@ var swing_origin = Melee.REST
 var swing_start_angle = Melee.REST
 var swing_direction = Vector2.ZERO
 var swing_spent = false
+var swing_armed = false
+var swing_recovery = 0.0
+var swing_rearm_started = false
+var weapon_recoil = Vector2.ZERO
+var weapon_rebound = 0.12
 var weapon_extension = 0.0
 var weapon_previous_extension = 0.0
 var heavy_windup = 0.0
@@ -152,6 +158,8 @@ func request_action(action: String) -> void:
 	match action:
 		"stab":
 			if stab_time <= 0 and kick_time <= 0 and heavy_windup <= 0 and heavy_release <= 0 and heavy_recovery <= 0:
+				if not pay_attack_stamina(Melee.stab_stamina(held)):
+					return
 				stab_time = stab_windup() + 0.12 + 0.22
 				stab_aim = Vector2(0.23, input_pitch * 0.85)
 				stab_landed = false
@@ -221,8 +229,12 @@ func server_tick(delta: float) -> void:
 		weapon_hit_cooldowns[id] -= delta
 		if weapon_hit_cooldowns[id] <= 0:
 			weapon_hit_cooldowns.erase(id)
-	for property in ["knockdown", "invulnerable", "kick_time", "dodge_time", "dodge_cooldown", "taunt_time", "taunt_cooldown", "hazard_cooldown", "pickup_cooldown", "guard_broken", "stamina_delay", "heavy_recovery"]:
+	for property in ["knockdown", "invulnerable", "kick_time", "dodge_time", "dodge_cooldown", "taunt_time", "taunt_cooldown", "hazard_cooldown", "pickup_cooldown", "guard_broken", "stamina_delay", "heavy_recovery", "swing_recovery"]:
 		set(property, maxf(0, get(property) - delta))
+	if swing_spent and swing_rearm_started and swing_recovery <= 0 and weapon_target.distance_to(swing_origin) >= Melee.rearm_distance(held):
+		swing_spent = false
+		swing_armed = false
+		swing_rearm_started = false
 	if input_age > 0.5 and not bot:
 		input_move = Vector2.ZERO
 		input_block = false
@@ -302,6 +314,55 @@ func consume_stamina(amount: float) -> void:
 	stamina_delay = 0.55
 	if stamina <= 0: exhausted = true
 
+func pay_attack_stamina(amount: float) -> bool:
+	if exhausted:
+		return false
+	if stamina + 0.001 < amount:
+		if stamina > 0:
+			consume_stamina(stamina)
+		else:
+			exhausted = true
+		return false
+	consume_stamina(amount)
+	return true
+
+func spend_swing(recovery: float = -1.0) -> void:
+	swing_spent = true
+	swing_armed = false
+	swing_recovery = maxf(swing_recovery, Melee.swing_recovery(held) if recovery < 0 else recovery)
+	swing_rearm_started = false
+
+func start_rearm(previous: Vector2, motion: Vector2) -> void:
+	swing_rearm_started = true
+	swing_origin = previous
+	swing_start_angle = weapon_angle
+	swing_direction = motion.normalized()
+	weapon_travel = 0
+
+func try_arm_swing() -> bool:
+	if swing_armed:
+		return true
+	if swing_spent or swing_recovery > 0 or heavy_recovery > 0:
+		return false
+	if not pay_attack_stamina(Melee.swing_stamina(held)):
+		spend_swing()
+		weapon_recoil = -swing_direction * Melee.recoil_distance(held) * 0.55
+		return false
+	swing_armed = true
+	return true
+
+func register_swing_contact(strength: float = 1.0) -> void:
+	if stab_time > 0:
+		return
+	var incoming = swing_direction if swing_direction.length() > 0.01 else weapon_velocity.normalized()
+	weapon_recoil = -incoming.normalized() * Melee.recoil_distance(held) * strength
+	weapon_rebound = maxf(weapon_rebound, clampf(0.36 + strength * 0.16, 0.42, 0.72))
+	spend_swing()
+	if held == "hammer":
+		heavy_windup = 0
+		heavy_release = 0
+		heavy_recovery = maxf(heavy_recovery, swing_recovery)
+
 func break_guard() -> void:
 	guard_broken = 0.9
 	blocking = false
@@ -319,19 +380,40 @@ func set_weapon_input(active: bool, aim: Vector2) -> void:
 		swing_origin = weapon_angle
 		swing_start_angle = weapon_angle
 		swing_direction = Vector2.ZERO
-		swing_spent = false
+		if swing_recovery <= 0:
+			swing_spent = false
+			swing_rearm_started = false
+		swing_armed = false
 		weapon_travel = 0
 	var motion = bounded - previous
 	if active and motion.length() > 0.004:
-		if swing_direction != Vector2.ZERO and motion.normalized().dot(swing_direction) < -0.3:
-			# A reversal starts a new stroke; little wiggles never add up to a full swing.
-			swing_origin = previous
-			swing_start_angle = weapon_angle
-			swing_spent = false
-			swing_direction = motion.normalized()
-		elif swing_direction == Vector2.ZERO:
-			swing_direction = motion.normalized()
-		weapon_travel = bounded.distance_to(swing_origin)
+		var reversal = swing_direction != Vector2.ZERO and motion.normalized().dot(swing_direction) < -0.3
+		if stab_time <= 0 and heavy_windup <= 0 and heavy_release <= 0:
+			if swing_spent:
+				if not swing_rearm_started and (swing_direction == Vector2.ZERO or reversal):
+					start_rearm(previous, motion)
+				elif swing_rearm_started:
+					if reversal:
+						start_rearm(previous, motion)
+					else:
+						weapon_travel = bounded.distance_to(swing_origin)
+						if swing_recovery <= 0 and weapon_travel >= Melee.rearm_distance(held):
+							swing_spent = false
+							swing_armed = false
+							swing_rearm_started = false
+			else:
+				if reversal:
+					if swing_armed:
+						spend_swing()
+						start_rearm(previous, motion)
+					else:
+						swing_origin = previous
+						swing_start_angle = weapon_angle
+						swing_direction = motion.normalized()
+						weapon_travel = 0
+				elif swing_direction == Vector2.ZERO:
+					swing_direction = motion.normalized()
+				weapon_travel = bounded.distance_to(swing_origin)
 		weapon_motion_age = 0
 	input_attack = active
 	weapon_target = bounded
@@ -344,7 +426,7 @@ func stab_active() -> bool:
 
 func committed_swing() -> bool:
 	if stab_time > 0: return stab_active()
-	if swing_spent or heavy_windup > 0 or heavy_recovery > 0: return false
+	if not swing_armed or swing_spent or heavy_windup > 0 or heavy_recovery > 0: return false
 	if held == "hammer" and heavy_release <= 0: return false
 	return (input_attack or heavy_release > 0) and weapon_motion_age < 0.6 and weapon_travel >= 0.52 and weapon_angle.distance_to(swing_start_angle) >= 0.32 and weapon_velocity.length() >= 2.7
 
@@ -357,6 +439,7 @@ func update_hand(delta: float) -> void:
 		var idle = Melee.integrate(weapon_angle, weapon_velocity, Melee.REST, held, delta)
 		weapon_angle = idle[0]
 		weapon_velocity = idle[1]
+		weapon_recoil = weapon_recoil.move_toward(Vector2.ZERO, delta * 3.0)
 		return
 	var hand_target = weapon_target if input_attack else Melee.REST
 	var release = false
@@ -380,25 +463,30 @@ func update_hand(delta: float) -> void:
 			if heavy_windup <= 0:
 				heavy_release = 0.30
 				swing_start_angle = weapon_angle
-				swing_spent = false
 		elif heavy_release > 0:
 			heavy_release = maxf(0, heavy_release - delta)
 			hand_target = heavy_goal
 			release = true
 			weapon_motion_age = 0
 			if heavy_release <= 0:
-				heavy_recovery = 0.22
-				swing_spent = true
+				spend_swing()
+				heavy_recovery = maxf(heavy_recovery, swing_recovery)
 		elif input_attack and not swing_spent and heavy_recovery <= 0 and weapon_motion_age < 0.22 and weapon_travel >= 0.52:
-			heavy_windup = 0.40
-			heavy_goal = weapon_target
-			heavy_prepare = Melee.angle_limit(weapon_angle - (weapon_target - weapon_angle).normalized() * 0.65)
-			hand_target = heavy_prepare
+			if try_arm_swing():
+				heavy_windup = 0.40
+				heavy_goal = weapon_target
+				heavy_prepare = Melee.angle_limit(weapon_angle - (weapon_target - weapon_angle).normalized() * 0.65)
+				hand_target = heavy_prepare
 	elif bot and bot_swing_clock > 0 and not input_attack:
 		hand_target = weapon_target
+	if stab_time <= 0:
+		hand_target = Melee.angle_limit(hand_target + weapon_recoil)
 	var hand = Melee.integrate(weapon_angle, weapon_velocity, hand_target, "sword" if stab_time > 0 else held, delta, release)
 	weapon_angle = hand[0]
 	weapon_velocity = hand[1]
+	weapon_recoil = weapon_recoil.move_toward(Vector2.ZERO, delta * 3.0)
+	if held != "hammer" and stab_time <= 0 and input_attack and not swing_spent and not swing_armed and weapon_motion_age < 0.22 and weapon_travel >= 0.52 and weapon_angle.distance_to(swing_start_angle) >= 0.32 and weapon_velocity.length() >= 2.7:
+		try_arm_swing()
 
 func reset_weapon() -> void:
 	weapon_kind = held
@@ -413,6 +501,11 @@ func reset_weapon() -> void:
 	swing_start_angle = Melee.REST
 	swing_direction = Vector2.ZERO
 	swing_spent = false
+	swing_armed = false
+	swing_recovery = 0
+	swing_rearm_started = false
+	weapon_recoil = Vector2.ZERO
+	weapon_rebound = 0.12
 	weapon_extension = 0
 	weapon_previous_extension = 0
 	heavy_windup = 0
@@ -443,7 +536,8 @@ func finish_melee_tick(delta: float) -> void:
 	if stab_time > 0:
 		stab_limit = weapon_extension
 		stab_landed = true
-	weapon_velocity *= -0.12
+	weapon_velocity *= -weapon_rebound
+	weapon_rebound = 0.12
 
 func drive_ai_weapon(_target, delta: float) -> void:
 	bot_swing_clock -= delta
@@ -479,6 +573,17 @@ func drive_ai_defense(target, delta: float) -> void:
 		input_pitch = clampf(target.weapon_angle.y * 0.5, -0.35, 0.55)
 	input_block = shield and bot_guard_time > 0 and not committed_swing() and heavy_windup <= 0
 
+func protect_head_hit(amount: float, push_direction: Vector3) -> float:
+	if not alive or invulnerable > 0 or not helmet_on or amount < 24.0 or game.phase not in ["fight", "betrayal"]:
+		return amount
+	helmet_on = false
+	var fling = push_direction.normalized()
+	if fling.length() < 0.1:
+		fling = Vector3(randf_range(-1, 1), 0, randf_range(-1, 1)).normalized()
+	game.spawn_item("helmet", global_position + Vector3(0, 2.05, 0), fling * 6.5 + Vector3.UP * 5.5)
+	game.event("block", global_position + Vector3(0, 1.9, 0), title + "'s helmet has left the building!")
+	return minf(amount, 12.0)
+
 func take_hit(amount: float, push: Vector3, attacker: int, reason: String = "hit") -> void:
 	if not alive or (invulnerable > 0 and reason != "pit"):
 		return
@@ -497,6 +602,7 @@ func take_hit(amount: float, push: Vector3, attacker: int, reason: String = "hit
 		blocking = false
 		shield_body.collision_layer = 0
 		input_attack = false
+		spend_swing(0.25)
 		stab_time = 0
 		heavy_windup = 0
 		heavy_release = 0
@@ -507,6 +613,8 @@ func take_hit(amount: float, push: Vector3, attacker: int, reason: String = "hit
 		alive = false
 		blocking = false
 		input_attack = false
+		swing_armed = false
+		swing_spent = true
 		shield_body.collision_layer = 0
 		attack_time = 0
 		collision_layer = 0
@@ -553,6 +661,7 @@ func _physics_process(delta: float) -> void:
 	if parts.is_empty():
 		pose.rotation.x = -0.15 if attack_time > 0 and not attack_resolved else 0
 		return
+	parts.helmet.visible = helmet_on
 	parts.legs[0].rotation.x = sin(step_time) * minf(moving * 0.12, 0.65) if not down else 0
 	parts.legs[1].rotation.x = -parts.legs[0].rotation.x
 	var hand = Melee.hand_frame(weapon_angle, weapon_extension)
@@ -598,7 +707,7 @@ func _refresh_equipment() -> void:
 		pose.add_child(shield_model)
 
 func serialize() -> Dictionary:
-	return {"id": uid, "n": title, "a": archetype, "c": tint, "b": bot, "p": global_position, "r": rotation.y, "v": Vector2(velocity.x, velocity.z).length(), "h": health, "alive": alive, "held": held, "shield": shield, "block": blocking, "down": knockdown, "atk": attack_time, "len": attack_length, "kick": kick_time, "taunt": taunt_time, "favor": favor, "wins": wins, "drag": dragging, "hand": weapon_angle, "grip": input_attack, "guard": guard_raise, "pitch": guard_pitch, "stamina": stamina, "exhausted": exhausted, "guard_broken": guard_broken, "extension": weapon_extension, "stab": stab_time}
+	return {"id": uid, "n": title, "a": archetype, "c": tint, "b": bot, "p": global_position, "r": rotation.y, "v": Vector2(velocity.x, velocity.z).length(), "h": health, "alive": alive, "held": held, "shield": shield, "helmet": helmet_on, "block": blocking, "down": knockdown, "atk": attack_time, "len": attack_length, "kick": kick_time, "taunt": taunt_time, "favor": favor, "wins": wins, "drag": dragging, "hand": weapon_angle, "grip": input_attack, "guard": guard_raise, "pitch": guard_pitch, "stamina": stamina, "exhausted": exhausted, "guard_broken": guard_broken, "extension": weapon_extension, "stab": stab_time}
 
 func receive(data: Dictionary) -> void:
 	remote_position = data.p
@@ -612,6 +721,7 @@ func receive(data: Dictionary) -> void:
 	alive = data.alive
 	held = data.held
 	shield = data.shield
+	helmet_on = data.helmet
 	blocking = data.block
 	knockdown = data.down
 	attack_time = data.atk
